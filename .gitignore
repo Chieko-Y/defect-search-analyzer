@@ -1,3 +1,6 @@
 .venv/
 __pycache__/
 data/raw/
+
+# 転職準備メモ（内部用。公開しない）
+docs/career_notes.md

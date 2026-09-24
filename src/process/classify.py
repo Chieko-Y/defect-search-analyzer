@@ -22,7 +22,12 @@ MODEL = "claude-opus-5"
 # v4: stated_cause・cause_source を追加、root の優先順位にディーラー/メーカーの診断を追加、
 #     原因不明の複数機能の不具合は root を Unknown に、trigger の推測の範囲を具体例で限定、
 #     trigger に Driving (road type unknown) を追加（「走行中」だけの苦情用）
-PROMPT_VERSION = "v4"
+# v5: 新しい10件の人の目でのチェックを受けて変更。root は「どの問題か」を顧客の訴えから選び、
+#     「どの機能のせいか」をディーラー/メーカーの診断で決める2段階に。safety_impact は root の問題でつける。
+#     「異常なし」は cause_source=none、Always は続いていると書かれているときだけ、
+#     部品が動かない→Failure to operate、水漏れ→Other、警告でメーターが見えない→IVI/Display
+# v6: root のステップ1で、持ち主が一番訴えている問題を優先する（苦情文の目印で判断）
+PROMPT_VERSION = "v6"
 # バージョンごとに別ファイルに保存し、前の版の結果と比べられるようにする
 OUT_PATH = ROOT / "data" / "processed" / f"rav4_classified_{PROMPT_VERSION}.jsonl"
 
@@ -53,14 +58,25 @@ Rules:
   Exception: trigger may be inferred from context in limited cases (see below).
 - "Other" means: stated in the complaint, but no allowed value fits.
 - Choose values ONLY from the allowed lists below.
-- root_function_group: exactly ONE group that most likely caused the problem.
-  Choose it in this order:
-  0. If a dealer/repair shop or the manufacturer identified or repaired the cause, choose that group.
+- root_function_group: exactly ONE group. Decide it in two steps.
+  Step 1 - choose WHICH problem, from the problems the owner complains about:
   1. If the complaint says A caused B, choose A (e.g. engine stalled, then power steering was lost -> Engine).
      If the owner reports a result (e.g. "replaced the battery and it was fixed"), treat it as A caused B.
-     An owner's guess alone ("I think it's the battery") does not decide the root.
-  2. If no cause is stated, choose the problem with the highest safety_impact.
-  3. If they are equal, choose the one mentioned first.
+  2. If the text shows which problem the owner mainly complains about, choose it. Use only these markers:
+     the owner says it is their main concern ("My concern is ..."), asks for a recall/investigation/repair
+     of it, repeatedly took the vehicle to the dealer for it, or calls the others secondary
+     ("Aside from the leak, ...").
+  3. If there is no such marker, choose the problem with the highest safety_impact.
+  4. If they are equal, choose the one mentioned first.
+  A function that the vehicle itself turned off while showing a reason (e.g. "sensor blocked" in rain
+  or snow) is normal behavior, not a problem: do not choose it and do not count it for multiple_issues.
+  A dealer diagnosis of a DIFFERENT problem does not change this choice
+  (e.g. owner complains about a distorted mirror; the dealer adjusted the alignment -> the mirror).
+  Step 2 - choose WHICH function group that problem belongs to:
+  - If a dealer/repair shop or the manufacturer identified or repaired the cause of THAT problem,
+    use the group of that cause (e.g. stalling diagnosed as a failed fuel injector -> Fuel System).
+  - Otherwise, use the group where the symptom appears.
+  - An owner's guess alone ("I think it's the battery") does not decide the group.
   Exception: if several functions fail together and no cause is stated (e.g. many warning lights,
   engine stalled, steering became heavy), use root "Unknown", list all groups in
   affected_function_groups, and set multiple_issues = true. Do not fill the root with a guess.
@@ -69,7 +85,10 @@ Rules:
 - trigger: the vehicle state when the problem occurred (driving, stopped, starting, etc.).
   Infer it only when the situation makes the vehicle state clear:
   "stopped at a red light" -> Stationary; "pulling out of a parking lot" -> Low speed/Parking;
-  "driving on the interstate" -> Highway driving; a part that simply stopped working -> Always.
+  "driving on the interstate" -> Highway driving.
+  Always: only when the complaint states the problem is constant or happens every time
+  ("always", "every time", "constantly", "never works"). A part that stopped working, with no
+  such statement -> Unknown.
   "While driving" with no road type -> Driving (road type unknown). Use City driving only when
   city streets are stated, and Highway driving only when a highway/freeway/interstate is stated.
   Use Unknown only when it is not even clear whether the vehicle was moving.
@@ -83,6 +102,8 @@ Rules:
 - cause_source: who stated the cause. dealer = dealer or repair shop diagnosis/repair;
   manufacturer = Toyota's explanation, recall or service campaign notice; owner = the owner's own
   opinion; none = no cause written (stated_cause is "").
+  If the dealer or manufacturer inspected and found nothing wrong (or said it is normal
+  behavior), that is not a cause: cause_source = none (you may note it in stated_cause).
 - confidence: how clearly the written content supports the classification.
 - Return JSON only, no extra text.
 
@@ -95,7 +116,8 @@ Function group rules (classify by the FUNCTION the part serves, not by the part 
 - Rear camera: if the screen works but only the camera image is missing or distorted -> ADAS.
   If the screen itself goes black or freezes (navigation/radio also unusable) -> IVI/Display.
 - A warning message about a function (e.g. "Pre-Collision System malfunction") -> the group of
-  that function.
+  that function. But if the owner's complaint is that the warning display hides other information
+  (speed, fuel, etc.) -> IVI/Display.
 - Aftermarket parts/devices: use the group of the affected function and set
   aftermarket_involved = true (e.g. comma.ai -> ADAS; aftermarket remote starter ->
   12V Electrical/Battery). Set it true only if a non-Toyota part or device is stated to be
@@ -105,7 +127,8 @@ Symptom rules:
 - Breakage: ONLY when the complaint says a part is visibly cracked, shattered, snapped,
   detached, or deformed. Not for internal failures of electronic parts or failures of unknown cause.
 - Failure to operate: looks intact but does not work (including cameras/sensors that show
-  nothing or do not respond).
+  nothing or do not respond, and parts such as door lock actuators that stopped working).
+- Water leaks without visible damage -> Other (not Breakage).
 - Noise/Vibration: rattles, squeaks, or shakes but is not broken.
 - If a part broke and then stopped working -> Breakage (the cause wins).
 - If symptoms progress (e.g. lost power, then stalled), choose the symptom that started it
@@ -125,8 +148,9 @@ Allowed trigger:
 Allowed environment:
 {", ".join(ENVIRONMENTS)}
 
-safety_impact (rate the realistic risk this failure could cause while driving, not only what
-happened this time; use 3 only if a crash, injury, or fire actually occurred):
+safety_impact (rate the realistic risk that the ROOT problem could cause while driving, not only
+what happened this time; other problems in the same complaint do not raise it; use 3 only if a
+crash, injury, or fire actually occurred):
 - IVI screen goes blank, freezes, or reboots: the rear camera view and warnings shown on the
   screen may be lost -> 2. IVI problems that leave the screen working (audio, navigation,
   phone connection only) -> 1.

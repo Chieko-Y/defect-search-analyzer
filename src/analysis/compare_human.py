@@ -25,8 +25,13 @@ def read_sheet(path: Path) -> dict[int, dict]:
     return answers
 
 
+# 人が書いたときの表記ゆれ・打ち間違い → 選択肢の正しい書き方
+ALIASES = {"not stated": "none stated", "ture": "true", "btransmission/drivetrain": "transmission/drivetrain"}
+
+
 def normalize(value) -> str:
-    return str(value).strip().lower()
+    v = str(value).strip().lower()
+    return ALIASES.get(v, v)
 
 
 def main() -> None:
