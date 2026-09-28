@@ -27,7 +27,11 @@ MODEL = "claude-opus-5"
 #     「異常なし」は cause_source=none、Always は続いていると書かれているときだけ、
 #     部品が動かない→Failure to operate、水漏れ→Other、警告でメーターが見えない→IVI/Display
 # v6: root のステップ1で、持ち主が一番訴えている問題を優先する（苦情文の目印で判断）
-PROMPT_VERSION = "v6"
+#     （v6 のまま追記：同じ機能グループでも別の部品が別々に壊れたら multiple_issues=true。
+#      これまでの分類結果は変わらないので版は上げない）
+#     （v6 のまま追記：symptom が Other のときの中身を other_detail に書く。ほかの項目は変わらない）
+# v7: 全件のあとに Other の中身を数え、水漏れ（19件）を symptom の選択肢 Water leak に昇格
+PROMPT_VERSION = "v7"
 # バージョンごとに別ファイルに保存し、前の版の結果と比べられるようにする
 OUT_PATH = ROOT / "data" / "processed" / f"rav4_classified_{PROMPT_VERSION}.jsonl"
 
@@ -40,7 +44,7 @@ FUNCTION_GROUPS = [
 SYMPTOMS = [
     "Unintended activation", "Failure to operate", "Intermittent operation",
     "False warning", "Display malfunction", "Connection loss", "Noise/Vibration",
-    "Performance degradation", "Breakage", "Fire/Smoke", "Other", "Unknown",
+    "Performance degradation", "Breakage", "Fire/Smoke", "Water leak", "Other", "Unknown",
 ]
 TRIGGERS = [
     "Highway driving", "City driving", "Driving (road type unknown)", "Low speed/Parking", "Starting from stop",
@@ -49,6 +53,12 @@ TRIGGERS = [
 ENVIRONMENTS = ["Rain", "Snow/Ice", "Heat", "Cold", "None stated"]
 CAUSE_SOURCES = ["dealer", "manufacturer", "owner", "none"]
 CONFIDENCE = ["high", "medium", "low"]
+# symptom が Other のときの中身の名前。件数が多いものは、あとで symptom の選択肢に昇格させるか決める
+OTHER_DETAILS = [
+    "GPS location drift", "Fuel fill shortage", "Fuel leak/odor", "Oil leak", "Odor",
+    "Glass distortion", "Surface deterioration", "Alignment out of spec", "Tire wear", "Worn part",
+    "Park interlock", "Battery drain", "Design concern",
+]
 
 SYSTEM_PROMPT = f"""You are a vehicle quality analyst. Classify one NHTSA owner complaint.
 
@@ -95,6 +105,9 @@ Rules:
   "Got in the car in the morning" without saying whether at start-up or after moving -> Unknown.
 - environment: surrounding conditions stated in the complaint. Use "None stated" if none.
 - multiple_issues: true if the complaint describes two or more separate problems.
+  Different parts failing in different ways count as separate problems even in the same function group
+  (airbags did not deploy AND the seat belt did not hold -> true).
+  The same failure repeated on identical parts is one problem (lock actuators failed on two doors -> false).
 - aftermarket_involved: true if a non-original (aftermarket) part or device is involved.
 - stated_cause: the cause or repair written in the complaint, in short English
   (e.g. "Dealer replaced 12V battery", "Software update fixed the issue", "Owner suspects fuel pump").
@@ -128,7 +141,10 @@ Symptom rules:
   detached, or deformed. Not for internal failures of electronic parts or failures of unknown cause.
 - Failure to operate: looks intact but does not work (including cameras/sensors that show
   nothing or do not respond, and parts such as door lock actuators that stopped working).
-- Water leaks without visible damage -> Other (not Breakage).
+- Water leak: water gets inside the vehicle or collects in doors, without visible damage. If a part
+  is visibly cracked and water leaks through it -> Breakage (the cause wins).
+- other_detail: when symptom is Other, name what it is in a few English words, reusing one of these
+  labels when it fits: {", ".join(OTHER_DETAILS)}. Use "" when symptom is not Other.
 - Noise/Vibration: rattles, squeaks, or shakes but is not broken.
 - If a part broke and then stopped working -> Breakage (the cause wins).
 - If symptoms progress (e.g. lost power, then stalled), choose the symptom that started it
@@ -179,11 +195,12 @@ OUTPUT_SCHEMA = {
         "evidence": {"type": "string"},
         "confidence": {"type": "string", "enum": CONFIDENCE},
         "unclear": {"type": "array", "items": {"type": "string"}},
+        "other_detail": {"type": "string"},
     },
     "required": [
         "root_function_group", "affected_function_groups", "symptom", "trigger",
         "environment", "safety_impact", "multiple_issues", "aftermarket_involved",
-        "stated_cause", "cause_source", "evidence", "confidence", "unclear",
+        "stated_cause", "cause_source", "evidence", "confidence", "unclear", "other_detail",
     ],
     "additionalProperties": False,
 }
