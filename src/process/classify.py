@@ -31,6 +31,8 @@ MODEL = "claude-opus-5"
 #      これまでの分類結果は変わらないので版は上げない）
 #     （v6 のまま追記：symptom が Other のときの中身を other_detail に書く。ほかの項目は変わらない）
 # v7: 全件のあとに Other の中身を数え、水漏れ（19件）を symptom の選択肢 Water leak に昇格
+#     （v7 のまま追記：体調不良は safety_impact 3 の「けが」に含めない。停車中か走行中かで点数を変えない。
+#      これまでの分類結果は変わらないので版は上げない）
 PROMPT_VERSION = "v7"
 # バージョンごとに別ファイルに保存し、前の版の結果と比べられるようにする
 OUT_PATH = ROOT / "data" / "processed" / f"rav4_classified_{PROMPT_VERSION}.jsonl"
@@ -167,6 +169,8 @@ Allowed environment:
 safety_impact (rate the realistic risk that the ROOT problem could cause while driving, not only
 what happened this time; other problems in the same complaint do not raise it; use 3 only if a
 crash, injury, or fire actually occurred):
+- Illness such as dizziness or nausea (e.g. from mold) is not an injury.
+- Do not change the rating by whether the vehicle was stationary or moving (trigger records that).
 - IVI screen goes blank, freezes, or reboots: the rear camera view and warnings shown on the
   screen may be lost -> 2. IVI problems that leave the screen working (audio, navigation,
   phone connection only) -> 1.
