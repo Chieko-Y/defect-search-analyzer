@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>苦情の詳細</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>苦情の詳細 <span id="title"></span></h1>
+  <p><a href="javascript:history.back()">← 一覧に戻る</a></p>
+</header>
+<main id="content"></main>
+
+<script>
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+}
+
+// 本文の中の「根拠の文」に色を付ける（なぜこの分類になったかが分かるように）
+function highlight(summary, evidence) {
+  const text = escapeHtml(summary);
+  const ev = escapeHtml(evidence);
+  if (!ev) return text;
+  const i = text.toLowerCase().indexOf(ev.toLowerCase());
+  if (i < 0) return text;
+  return text.slice(0, i) + "<mark>" + text.slice(i, i + ev.length) + "</mark>" + text.slice(i + ev.length);
+}
+
+function row(label, value) {
+  return `<dt>${label}</dt><dd>${value === "" || value == null ? "—" : value}</dd>`;
+}
+
+async function load() {
+  const odi = new URLSearchParams(location.search).get("odi");
+  const res = await fetch(`/api/complaints/${encodeURIComponent(odi)}`);
+  const main = document.getElementById("content");
+  if (!res.ok) {
+    main.innerHTML = `<section class="card">苦情 ${escapeHtml(odi)} は見つかりません</section>`;
+    return;
+  }
+  const c = await res.json();
+  document.getElementById("title").textContent = c.odi_number;
+  const yes = v => v ? "あり" : "なし";
+
+  main.innerHTML = `
+    <section class="card">
+      <h2>分類（v7）</h2>
+      <dl class="detail-grid">
+        ${row("危険度", `<span class="safety safety-${c.safety_impact}">${c.safety_impact}</span>`)}
+        ${row("関係する機能", c.functions.map(f =>
+            `<span class="tag ${f.is_root ? "main" : ""}">${escapeHtml(f.name)}${f.is_root ? "（メイン）" : ""}</span>`).join("")
+            + (c.root_function_group === "Unknown" ? `<span class="tag main">root: Unknown</span>` : ""))}
+        ${row("症状", escapeHtml(c.symptom) + (c.other_detail ? `（${escapeHtml(c.other_detail)}）` : ""))}
+        ${row("いつ起きたか", escapeHtml(c.trigger))}
+        ${row("環境", escapeHtml(c.environment))}
+        ${row("書かれた原因", c.stated_cause ? `${escapeHtml(c.stated_cause)}（言ったのは ${escapeHtml(c.cause_source)}）` : "")}
+        ${row("根拠の文", `<mark>${escapeHtml(c.evidence)}</mark>`)}
+        ${row("AI の自信", escapeHtml(c.confidence))}
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2>苦情の本文（色の付いた部分が根拠の文）</h2>
+      <div class="summary">${highlight(c.summary, c.evidence)}</div>
+    </section>
+
+    <section class="card">
+      <h2>NHTSA の登録内容</h2>
+      <dl class="detail-grid">
+        ${row("年式", c.model_year)}
+        ${row("ハイブリッド／ガソリン", escapeHtml(c.powertrain) + (c.trim ? `（${escapeHtml(c.trim)}）` : ""))}
+        ${row("事故日", escapeHtml(c.date_of_incident))}
+        ${row("苦情を出した日", escapeHtml(c.date_filed))}
+        ${row("衝突／火災", `${yes(c.crash)}／${yes(c.fire)}`)}
+        ${row("けが人／死者", `${c.injuries}／${c.deaths}`)}
+        ${row("持ち主が選んだ部品カテゴリ", c.components.map(x => `<span class="tag">${escapeHtml(x)}</span>`).join(""))}
+        ${row("二重登録", c.duplicate_of ? `<a href="/detail?odi=${c.duplicate_of}">${c.duplicate_of}</a> と同じ出来事` : "")}
+      </dl>
+    </section>`;
+}
+
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>不具合検索</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>不具合検索（RAV4 2022〜2025）</h1>
+  <p>データ出典: NHTSA の苦情データ。分類は v7 のルール（AI＋人の確認）</p>
+</header>
+<main>
+  <section class="card">
+    <h2>条件で絞り込む</h2>
+    <div class="filters" id="filters"></div>
+    <div class="actions">
+      <button class="primary" id="search">検索</button>
+      <button id="reset">条件をクリア</button>
+      <label><input type="checkbox" id="include_duplicates"> 二重登録も含める</label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>結果 <span class="count" id="count"></span></h2>
+    <table>
+      <thead>
+        <tr>
+          <th>危険度</th><th>番号</th><th class="hide-sm">年式</th><th class="hide-sm">事故日</th>
+          <th>root（メイン）</th><th>症状</th><th class="hide-sm">いつ</th><th class="hide-sm">根拠の文</th>
+        </tr>
+      </thead>
+      <tbody id="results"></tbody>
+    </table>
+    <div class="pager">
+      <button id="prev">前へ</button>
+      <span id="page"></span>
+      <button id="next">次へ</button>
+    </div>
+  </section>
+</main>
+
+<script>
+// 絞り込み項目（API の名前 → 画面の見出し）
+const FILTERS = [
+  ["root", "root（メインの機能）"],
+  ["function", "関係する機能（サブも含む）"],
+  ["symptom", "症状"],
+  ["trigger", "いつ起きたか"],
+  ["environment", "環境"],
+  ["safety_impact", "危険度"],
+  ["powertrain", "ハイブリッド／ガソリン"],
+  ["model_year", "年式"],
+];
+const PAGE_SIZE = 50;
+let offset = 0;
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+}
+
+// ① 選択肢を API から取ってきて、プルダウンを作る
+async function loadOptions() {
+  const res = await fetch("/api/options");
+  const options = await res.json();
+  const box = document.getElementById("filters");
+  let html = "";
+  for (const [name, label] of FILTERS) {
+    html += `<div><label for="f-${name}">${label}</label><select id="f-${name}"><option value="">（すべて）</option>`;
+    for (const o of options[name]) {
+      html += `<option value="${escapeHtml(o.value)}">${escapeHtml(o.value)}（${o.n}）</option>`;
+    }
+    html += `</select></div>`;
+  }
+  html += `<div><label for="f-keyword">本文のキーワード（英語）</label><input type="text" id="f-keyword" placeholder="例: rain, camera"></div>`;
+  box.innerHTML = html;
+}
+
+// ② 選んだ条件を URL のパラメータにして、検索 API を呼ぶ
+async function search() {
+  const params = new URLSearchParams();
+  for (const [name] of FILTERS) {
+    const v = document.getElementById(`f-${name}`).value;
+    if (v !== "") params.set(name, v);
+  }
+  const keyword = document.getElementById("f-keyword").value.trim();
+  if (keyword) params.set("keyword", keyword);
+  if (document.getElementById("include_duplicates").checked) params.set("include_duplicates", "true");
+  params.set("limit", PAGE_SIZE);
+  params.set("offset", offset);
+
+  const res = await fetch("/api/complaints?" + params);
+  const data = await res.json();
+  showResults(data);
+}
+
+// ③ 返ってきた結果（JSON）を表に書き込む
+function showResults(data) {
+  document.getElementById("count").textContent = `${data.total} 件`;
+  const tbody = document.getElementById("results");
+  tbody.innerHTML = data.items.map(r => `
+    <tr data-odi="${r.odi_number}">
+      <td><span class="safety safety-${r.safety_impact}">${r.safety_impact}</span></td>
+      <td>${r.odi_number}</td>
+      <td class="hide-sm">${r.model_year}</td>
+      <td class="hide-sm">${escapeHtml(r.date_of_incident)}</td>
+      <td>${escapeHtml(r.root_function_group)}</td>
+      <td>${escapeHtml(r.symptom)}</td>
+      <td class="hide-sm">${escapeHtml(r.trigger)}</td>
+      <td class="hide-sm evidence">${escapeHtml(r.evidence)}</td>
+    </tr>`).join("") || `<tr><td colspan="8">条件に合う苦情はありません</td></tr>`;
+  const pages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
+  document.getElementById("page").textContent = `${offset / PAGE_SIZE + 1} / ${pages} ページ`;
+  document.getElementById("prev").disabled = offset === 0;
+  document.getElementById("next").disabled = offset + PAGE_SIZE >= data.total;
+}
+
+document.getElementById("search").onclick = () => { offset = 0; search(); };
+document.getElementById("reset").onclick = () => {
+  document.querySelectorAll("#filters select").forEach(s => s.value = "");
+  document.getElementById("f-keyword").value = "";
+  offset = 0; search();
+};
+document.getElementById("prev").onclick = () => { offset -= PAGE_SIZE; search(); };
+document.getElementById("next").onclick = () => { offset += PAGE_SIZE; search(); };
+document.getElementById("results").onclick = e => {
+  const tr = e.target.closest("tr[data-odi]");
+  if (tr) location.href = `/detail?odi=${tr.dataset.odi}`;
+};
+
+loadOptions().then(search);
+</script>
+</body>
+</html>
