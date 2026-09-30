@@ -15,7 +15,7 @@ Usage:
 import sqlite3
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -61,22 +61,77 @@ FILTER_COLUMNS = {
 }
 
 
+class Filters:
+    """画面で選んだ条件（URL のパラメータ）。一覧の検索と、選択肢の件数の両方で使う"""
+
+    def __init__(
+        self,
+        root: str | None = None,
+        function: str | None = None,
+        symptom: str | None = None,
+        trigger: str | None = None,
+        environment: str | None = None,
+        powertrain: str | None = None,
+        model_year: int | None = None,
+        safety_impact: int | None = None,
+        keyword: str | None = None,
+        include_duplicates: bool = False,
+    ):
+        self.values = {"root": root, "function": function, "symptom": symptom, "trigger": trigger,
+                       "environment": environment, "powertrain": powertrain,
+                       "model_year": model_year, "safety_impact": safety_impact}
+        self.keyword = keyword
+        self.include_duplicates = include_duplicates
+
+    def where(self, skip: str | None = None) -> tuple[str, list]:
+        """条件を SQL の WHERE にする。条件は AND でつなぐ（指定しなかった条件は使わない）
+
+        skip: この項目の条件だけ使わない（その項目の選択肢を数えるとき用）
+        """
+        where, params = [], []
+        for name, value in self.values.items():
+            if name == skip or value is None or value == "":
+                continue
+            if name == "function":
+                # root だけでなく、一緒に出てきた機能（サブ）も含めて探す
+                where.append("EXISTS (SELECT 1 FROM complaint_functions f2 "
+                             "WHERE f2.odi_number = c.odi_number AND f2.function_group = ?)")
+            else:
+                where.append(f"c.{FILTER_COLUMNS[name]} = ?")
+            params.append(value)
+        if self.keyword:
+            where.append("c.summary LIKE ?")
+            params.append(f"%{self.keyword}%")
+        if not self.include_duplicates:
+            where.append("c.duplicate_of IS NULL")
+        return ("WHERE " + " AND ".join(where) if where else ""), params
+
+
 @app.get("/api/options")
-def options():
-    """それぞれの絞り込み項目に、どんな値が何件あるか（重複登録は除く）"""
+def options(filters: Filters = Depends()):
+    """それぞれの絞り込み項目に、どんな値が何件あるか
+
+    ほかの項目で選んだ条件に合う苦情だけを数える（例: root に IVI/Display を選ぶと、
+    症状の選択肢は IVI/Display の苦情に出てくるものだけになる）。
+    自分の項目の条件は外して数えるので、選んだあとでも別の値に選び直せる。
+    """
     con = connect()
     result = {}
     for name, column in FILTER_COLUMNS.items():
+        where_sql, params = filters.where(skip=name)
         # 列の名前は上の表から選んだものだけなので、SQL に直接入れてよい
         rows = con.execute(
-            f"SELECT {column} AS value, COUNT(*) AS n FROM complaints "
-            f"WHERE duplicate_of IS NULL GROUP BY {column} ORDER BY n DESC"
+            f"SELECT c.{column} AS value, COUNT(*) AS n FROM complaints c {where_sql} "
+            f"GROUP BY c.{column} ORDER BY n DESC",
+            params,
         ).fetchall()
         result[name] = [dict(r) for r in rows]
+    where_sql, params = filters.where(skip="function")
     rows = con.execute(
         "SELECT f.function_group AS value, COUNT(*) AS n "
-        "FROM complaint_functions f JOIN complaints c ON c.odi_number = f.odi_number "
-        "WHERE c.duplicate_of IS NULL GROUP BY f.function_group ORDER BY n DESC"
+        f"FROM complaint_functions f JOIN complaints c ON c.odi_number = f.odi_number {where_sql} "
+        "GROUP BY f.function_group ORDER BY n DESC",
+        params,
     ).fetchall()
     result["function"] = [dict(r) for r in rows]
     con.close()
@@ -84,39 +139,9 @@ def options():
 
 
 @app.get("/api/complaints")
-def search(
-    root: str | None = None,
-    function: str | None = None,
-    symptom: str | None = None,
-    trigger: str | None = None,
-    environment: str | None = None,
-    powertrain: str | None = None,
-    model_year: int | None = None,
-    safety_impact: int | None = None,
-    keyword: str | None = None,
-    include_duplicates: bool = False,
-    limit: int = 50,
-    offset: int = 0,
-):
-    """条件に合う苦情の一覧。条件は AND でつなぐ（指定しなかった条件は使わない）"""
-    where, params = [], []
-    values = {"root": root, "symptom": symptom, "trigger": trigger, "environment": environment,
-              "powertrain": powertrain, "model_year": model_year, "safety_impact": safety_impact}
-    for name, value in values.items():
-        if value is not None and value != "":
-            where.append(f"c.{FILTER_COLUMNS[name]} = ?")
-            params.append(value)
-    if function:
-        # root だけでなく、一緒に出てきた機能（サブ）も含めて探す
-        where.append("EXISTS (SELECT 1 FROM complaint_functions f "
-                     "WHERE f.odi_number = c.odi_number AND f.function_group = ?)")
-        params.append(function)
-    if keyword:
-        where.append("c.summary LIKE ?")
-        params.append(f"%{keyword}%")
-    if not include_duplicates:
-        where.append("c.duplicate_of IS NULL")
-    where_sql = "WHERE " + " AND ".join(where) if where else ""
+def search(filters: Filters = Depends(), limit: int = 50, offset: int = 0):
+    """条件に合う苦情の一覧"""
+    where_sql, params = filters.where()
 
     con = connect()
     total = con.execute(f"SELECT COUNT(*) FROM complaints c {where_sql}", params).fetchone()[0]

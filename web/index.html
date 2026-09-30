@@ -60,39 +60,61 @@ function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 }
 
-// ① 選択肢を API から取ってきて、プルダウンを作る
-async function loadOptions() {
-  const res = await fetch("/api/options");
-  const options = await res.json();
-  const box = document.getElementById("filters");
+// 画面で選んだ条件を、URL のパラメータの形にまとめる
+function currentParams() {
+  const params = new URLSearchParams();
+  for (const [name] of FILTERS) {
+    const el = document.getElementById(`f-${name}`);
+    if (el && el.value !== "") params.set(name, el.value);
+  }
+  const keyword = document.getElementById("f-keyword")?.value.trim();
+  if (keyword) params.set("keyword", keyword);
+  if (document.getElementById("include_duplicates").checked) params.set("include_duplicates", "true");
+  return params;
+}
+
+// 最初に一度だけ、空のプルダウンを作る
+function buildFilters() {
   let html = "";
   for (const [name, label] of FILTERS) {
-    html += `<div><label for="f-${name}">${label}</label><select id="f-${name}"><option value="">（すべて）</option>`;
+    html += `<div><label for="f-${name}">${label}</label><select id="f-${name}"></select></div>`;
+  }
+  html += `<div><label for="f-keyword">本文のキーワード（英語）</label><input type="text" id="f-keyword" placeholder="例: rain, camera"></div>`;
+  document.getElementById("filters").innerHTML = html;
+}
+
+// ① 今の条件で選択肢を API から取ってきて、プルダウンの中身を入れ替える
+//    （例: root に IVI/Display を選ぶと、症状は IVI/Display の苦情にあるものだけになる）
+async function loadOptions() {
+  const res = await fetch("/api/options?" + currentParams());
+  const options = await res.json();
+  for (const [name] of FILTERS) {
+    const select = document.getElementById(`f-${name}`);
+    const selected = select.value;
+    let html = `<option value="">（すべて）</option>`;
     for (const o of options[name]) {
       html += `<option value="${escapeHtml(o.value)}">${escapeHtml(o.value)}（${o.n}）</option>`;
     }
-    html += `</select></div>`;
+    select.innerHTML = html;
+    select.value = selected;  // 選んでいた値はそのまま残す
   }
-  html += `<div><label for="f-keyword">本文のキーワード（英語）</label><input type="text" id="f-keyword" placeholder="例: rain, camera"></div>`;
-  box.innerHTML = html;
 }
 
-// ② 選んだ条件を URL のパラメータにして、検索 API を呼ぶ
+// ② 選んだ条件で検索 API を呼ぶ
 async function search() {
-  const params = new URLSearchParams();
-  for (const [name] of FILTERS) {
-    const v = document.getElementById(`f-${name}`).value;
-    if (v !== "") params.set(name, v);
-  }
-  const keyword = document.getElementById("f-keyword").value.trim();
-  if (keyword) params.set("keyword", keyword);
-  if (document.getElementById("include_duplicates").checked) params.set("include_duplicates", "true");
+  const params = currentParams();
   params.set("limit", PAGE_SIZE);
   params.set("offset", offset);
-
   const res = await fetch("/api/complaints?" + params);
   const data = await res.json();
   showResults(data);
+}
+
+// 条件が変わったら、選択肢と結果の両方を更新する
+async function refresh() {
+  offset = 0;
+  await loadOptions();
+  await search();
 }
 
 // ③ 返ってきた結果（JSON）を表に書き込む
@@ -116,12 +138,14 @@ function showResults(data) {
   document.getElementById("next").disabled = offset + PAGE_SIZE >= data.total;
 }
 
-document.getElementById("search").onclick = () => { offset = 0; search(); };
+document.getElementById("search").onclick = refresh;
 document.getElementById("reset").onclick = () => {
   document.querySelectorAll("#filters select").forEach(s => s.value = "");
   document.getElementById("f-keyword").value = "";
-  offset = 0; search();
+  refresh();
 };
+document.getElementById("filters").addEventListener("change", refresh);
+document.getElementById("include_duplicates").onchange = refresh;
 document.getElementById("prev").onclick = () => { offset -= PAGE_SIZE; search(); };
 document.getElementById("next").onclick = () => { offset += PAGE_SIZE; search(); };
 document.getElementById("results").onclick = e => {
@@ -129,7 +153,8 @@ document.getElementById("results").onclick = e => {
   if (tr) location.href = `/detail?odi=${tr.dataset.odi}`;
 };
 
-loadOptions().then(search);
+buildFilters();
+refresh();
 </script>
 </body>
 </html>
