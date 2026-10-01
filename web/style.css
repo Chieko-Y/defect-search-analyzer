@@ -33,6 +33,13 @@ th { font-size: 12px; color: var(--muted); font-weight: normal; }
 tbody tr:hover { background: #f0f6ff; cursor: pointer; }
 .evidence { color: var(--muted); font-size: 12px; }
 .count { color: var(--muted); }
+.hint { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+.query { display: flex; gap: 8px; }
+.query input { flex: 1; min-width: 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+  font: inherit; font-size: 15px; }
+.tech { font-size: 12px; font-weight: normal; color: var(--muted); }
+.score-col { display: none; font-variant-numeric: tabular-nums; }
+.by-meaning .score-col { display: table-cell; }
 .pager { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 10px; }
 
 .safety { display: inline-block; min-width: 22px; text-align: center; border-radius: 10px; color: #fff; font-size: 12px; padding: 0 6px; }

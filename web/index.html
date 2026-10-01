@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>不具合検索</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=2">
 </head>
 <body>
 <header>
@@ -12,6 +12,15 @@
   <p>データ出典: NHTSA の苦情データ。分類は v7 のルール（AI＋人の確認）</p>
 </header>
 <main>
+  <section class="card">
+    <h2>文章で探す <small class="tech">（セマンティック検索）</small></h2>
+    <p class="hint">検索したい文言を入力してください。言葉が完全に一致しなくても、意味が近い苦情を探します（日本語・英語どちらでも可）。</p>
+    <div class="query">
+      <input type="text" id="q" placeholder="例: 雨の日に走っていたら急にエンジンが止まった">
+      <button class="primary" id="q-search">探す</button>
+    </div>
+  </section>
+
   <section class="card">
     <h2>条件で絞り込む</h2>
     <div class="filters" id="filters"></div>
@@ -27,8 +36,8 @@
     <table>
       <thead>
         <tr>
-          <th>危険度</th><th>番号</th><th class="hide-sm">年式</th><th class="hide-sm">事故日</th>
-          <th>root（メイン）</th><th>症状</th><th class="hide-sm">いつ</th><th class="hide-sm">根拠の文</th>
+          <th class="score-col">近さ</th><th>危険度</th><th>番号</th><th class="hide-sm">年式</th><th class="hide-sm">事故日</th>
+          <th>root（メイン）</th><th>症状</th><th class="hide-sm">いつ</th><th class="hide-sm" id="text-col">根拠の文</th>
         </tr>
       </thead>
       <tbody id="results"></tbody>
@@ -69,6 +78,8 @@ function currentParams() {
   }
   const keyword = document.getElementById("f-keyword")?.value.trim();
   if (keyword) params.set("keyword", keyword);
+  const q = document.getElementById("q").value.trim();
+  if (q) params.set("q", q);
   if (document.getElementById("include_duplicates").checked) params.set("include_duplicates", "true");
   return params;
 }
@@ -86,7 +97,9 @@ function buildFilters() {
 // ① 今の条件で選択肢を API から取ってきて、プルダウンの中身を入れ替える
 //    （例: root に IVI/Display を選ぶと、症状は IVI/Display の苦情にあるものだけになる）
 async function loadOptions() {
-  const res = await fetch("/api/options?" + currentParams());
+  const params = currentParams();
+  params.delete("q");  // 選択肢の件数は、文章では変わらない
+  const res = await fetch("/api/options?" + params);
   const options = await res.json();
   for (const [name] of FILTERS) {
     const select = document.getElementById(`f-${name}`);
@@ -119,10 +132,15 @@ async function refresh() {
 
 // ③ 返ってきた結果（JSON）を表に書き込む
 function showResults(data) {
-  document.getElementById("count").textContent = `${data.total} 件`;
+  // 文章で探したときは「近さ」と「近かった部分」を出し、近い順に並んでいることを示す
+  const byMeaning = document.getElementById("q").value.trim() !== "";
+  document.body.classList.toggle("by-meaning", byMeaning);
+  document.getElementById("text-col").textContent = byMeaning ? "近かった部分" : "根拠の文";
+  document.getElementById("count").textContent = `${data.total} 件` + (byMeaning ? "（意味が近い順）" : "");
   const tbody = document.getElementById("results");
   tbody.innerHTML = data.items.map(r => `
     <tr data-odi="${r.odi_number}">
+      <td class="score-col">${r.score != null ? r.score.toFixed(2) : ""}</td>
       <td><span class="safety safety-${r.safety_impact}">${r.safety_impact}</span></td>
       <td>${r.odi_number}</td>
       <td class="hide-sm">${r.model_year}</td>
@@ -130,8 +148,8 @@ function showResults(data) {
       <td>${escapeHtml(r.root_function_group)}</td>
       <td>${escapeHtml(r.symptom)}</td>
       <td class="hide-sm">${escapeHtml(r.trigger)}</td>
-      <td class="hide-sm evidence">${escapeHtml(r.evidence)}</td>
-    </tr>`).join("") || `<tr><td colspan="8">条件に合う苦情はありません</td></tr>`;
+      <td class="hide-sm evidence">${escapeHtml(byMeaning ? r.matched_text : r.evidence)}</td>
+    </tr>`).join("") || `<tr><td colspan="9">条件に合う苦情はありません</td></tr>`;
   const pages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
   document.getElementById("page").textContent = `${offset / PAGE_SIZE + 1} / ${pages} ページ`;
   document.getElementById("prev").disabled = offset === 0;
@@ -139,9 +157,15 @@ function showResults(data) {
 }
 
 document.getElementById("search").onclick = refresh;
+document.getElementById("q-search").onclick = refresh;
+// Enter で検索。日本語の変換を確定する Enter では検索しない
+document.getElementById("q").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.isComposing) refresh();
+});
 document.getElementById("reset").onclick = () => {
   document.querySelectorAll("#filters select").forEach(s => s.value = "");
   document.getElementById("f-keyword").value = "";
+  document.getElementById("q").value = "";
   refresh();
 };
 document.getElementById("filters").addEventListener("change", refresh);

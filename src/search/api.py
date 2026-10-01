@@ -5,15 +5,20 @@ Usage:
     → http://127.0.0.1:8000/
 
 先に python src/process/build_db.py で data/processed/defects.db を作っておく。
+文章で探す（q）には、さらに python src/process/embed.py でベクトルを作っておく。
 
 窓口（API）:
     GET /api/options               絞り込みの選択肢と件数
-    GET /api/complaints            条件で絞り込んだ苦情の一覧
+    GET /api/complaints            条件で絞り込んだ苦情の一覧（q を付けると、文章の意味が近い順）
     GET /api/complaints/{番号}     1件の詳細
 画面（HTML と JavaScript）は web/ にある。
 """
+import json
 import sqlite3
+from functools import lru_cache
 from pathlib import Path
+
+import numpy as np
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -22,6 +27,9 @@ from fastapi.staticfiles import StaticFiles
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = ROOT / "data" / "processed" / "defects.db"
 WEB_DIR = ROOT / "web"
+CHUNKS_PATH = ROOT / "data" / "processed" / "complaint_chunks.jsonl"
+EMBEDDINGS_PATH = ROOT / "data" / "processed" / "complaint_chunks.npy"
+META_PATH = ROOT / "data" / "processed" / "complaint_chunks_meta.json"  # embed.py がどのモデルで作ったか
 
 app = FastAPI(title="defect-search-analyzer")
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")  # CSS など
@@ -33,6 +41,40 @@ def connect() -> sqlite3.Connection:
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row  # 列の名前で値を取り出せるようにする（row["symptom"]）
     return con
+
+
+@lru_cache(maxsize=1)
+def semantic_index():
+    """モデルとベクトルを読み込む（重いので、最初に文章で探したときに1回だけ）"""
+    if not CHUNKS_PATH.exists() or not EMBEDDINGS_PATH.exists() or not META_PATH.exists():
+        raise HTTPException(500, "ベクトルがありません。先に python src/process/embed.py を実行してください")
+    from sentence_transformers import SentenceTransformer  # 読み込みに時間がかかるので、使うときだけ
+
+    with CHUNKS_PATH.open(encoding="utf-8") as f:
+        chunks = [json.loads(line) for line in f if line.strip()]
+    embeddings = np.load(EMBEDDINGS_PATH)
+    if len(chunks) != embeddings.shape[0]:
+        raise HTTPException(500, "complaint_chunks の jsonl と npy の件数が合いません。embed.py を実行し直してください")
+    # ベクトルを作ったときと同じモデルで質問をベクトルにしないと、比べられない
+    meta = json.loads(META_PATH.read_text(encoding="utf-8"))
+    return SentenceTransformer(meta["model"]), meta["query_prefix"], chunks, embeddings
+
+
+def rank_by_meaning(q: str, odi_numbers: set[int]) -> list[tuple[int, float, str]]:
+    """q と意味が近い順に、苦情を並べる → [(番号, 類似度, 一番近かった部分), ...]
+
+    苦情文は小さな部分に分けてベクトルにしてあるので、苦情ごとに一番近い部分の点数を使う。
+    odi_numbers（絞り込みの条件に合う苦情）だけを並べる。
+    """
+    model, query_prefix, chunks, embeddings = semantic_index()
+    query_vec = model.encode([query_prefix + q], convert_to_numpy=True, normalize_embeddings=True)[0]
+    scores = embeddings @ query_vec  # 正規化してあるので、内積＝コサイン類似度
+    best: dict[int, tuple[float, str]] = {}
+    for chunk, score in zip(chunks, scores):
+        odi = chunk["odi_number"]
+        if odi in odi_numbers and (odi not in best or score > best[odi][0]):
+            best[odi] = (float(score), chunk["text"])
+    return sorted(((odi, sc, text) for odi, (sc, text) in best.items()), key=lambda x: -x[1])
 
 
 # ---- 画面 ----
@@ -138,22 +180,44 @@ def options(filters: Filters = Depends()):
     return result
 
 
+LIST_COLUMNS = ("c.odi_number, c.model_year, c.date_of_incident, c.powertrain, "
+                "c.root_function_group, c.symptom, c.trigger, c.safety_impact, c.evidence")
+
+
 @app.get("/api/complaints")
-def search(filters: Filters = Depends(), limit: int = 50, offset: int = 0):
-    """条件に合う苦情の一覧"""
+def search(filters: Filters = Depends(), q: str | None = None, limit: int = 50, offset: int = 0):
+    """条件に合う苦情の一覧
+
+    q（文章）があるときは、条件に合う苦情を、q と意味が近い順に並べる。
+    件数は絞り込まない（意味の近さは「どのくらい似ているか」で、合う・合わないの線は引けないため）。
+    """
     where_sql, params = filters.where()
+    limit = min(limit, 200)
 
     con = connect()
-    total = con.execute(f"SELECT COUNT(*) FROM complaints c {where_sql}", params).fetchone()[0]
-    rows = con.execute(
-        f"SELECT c.odi_number, c.model_year, c.date_of_incident, c.powertrain, "
-        f"c.root_function_group, c.symptom, c.trigger, c.safety_impact, c.evidence "
-        f"FROM complaints c {where_sql} "
-        f"ORDER BY c.safety_impact DESC, c.date_of_incident DESC LIMIT ? OFFSET ?",
-        params + [min(limit, 200), offset],
-    ).fetchall()
+    if not q or not q.strip():
+        total = con.execute(f"SELECT COUNT(*) FROM complaints c {where_sql}", params).fetchone()[0]
+        rows = con.execute(
+            f"SELECT {LIST_COLUMNS} FROM complaints c {where_sql} "
+            f"ORDER BY c.safety_impact DESC, c.date_of_incident DESC LIMIT ? OFFSET ?",
+            params + [limit, offset],
+        ).fetchall()
+        con.close()
+        return {"total": total, "items": [dict(r) for r in rows]}
+
+    odi_numbers = {r[0] for r in con.execute(f"SELECT c.odi_number FROM complaints c {where_sql}", params)}
+    ranked = rank_by_meaning(q.strip(), odi_numbers)
+    page = ranked[offset:offset + limit]
+    rows = {}
+    if page:
+        marks = ",".join("?" * len(page))
+        rows = {r["odi_number"]: dict(r) for r in con.execute(
+            f"SELECT {LIST_COLUMNS} FROM complaints c WHERE c.odi_number IN ({marks})",
+            [odi for odi, _, _ in page],
+        )}
     con.close()
-    return {"total": total, "items": [dict(r) for r in rows]}
+    items = [{**rows[odi], "score": round(score, 3), "matched_text": text} for odi, score, text in page]
+    return {"total": len(ranked), "items": items}
 
 
 @app.get("/api/complaints/{odi_number}")

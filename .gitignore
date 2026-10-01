@@ -7,3 +7,7 @@ docs/career_notes.md
 
 # 作り直せる DB（src/process/build_db.py で作る）
 *.db
+
+# 意味の検索用のベクトル（src/process/embed.py で作る）
+data/processed/complaint_chunks*
+data/eval/cache/

@@ -1,0 +1,55 @@
+{
+  "about": "セマンティック検索のテスト用の質問セット。テーマと正解の条件は Chieko が決定（2026-10-01）。2つ目の言い方（文章での言い方）は Claude Code が作成。正解は v7 の分類で決め、二重登録は除く",
+  "topics": [
+    {
+      "id": 1, "name": "水漏れ",
+      "queries": ["水漏れ", "雨のあと車内が濡れている"],
+      "answer": "c.symptom = 'Water leak'"
+    },
+    {
+      "id": 2, "name": "雨の日のエンスト",
+      "queries": ["雨の日にエンジンが止まった", "大雨の中を走っていたらエンストして再始動できない"],
+      "answer": "c.root_function_group = 'Engine' AND c.symptom = 'Failure to operate' AND c.environment = 'Rain'"
+    },
+    {
+      "id": 3, "name": "サンルーフの破損",
+      "queries": ["サンルーフが割れた", "走っていたら突然天井のガラスが粉々に割れた"],
+      "answer": "c.root_function_group = 'Body/Glass' AND c.symptom = 'Breakage' AND lower(c.summary) LIKE '%sunroof%'"
+    },
+    {
+      "id": 4, "name": "急加速",
+      "queries": ["勝手に急加速した", "ブレーキを踏んでいるのに車が前に飛び出しそうになった"],
+      "answer": "c.root_function_group = 'Engine' AND c.symptom = 'Unintended activation'"
+    },
+    {
+      "id": 5, "name": "画面が消える",
+      "queries": ["ナビの画面が真っ暗になる", "運転中にディスプレイが突然消えて何も表示されない"],
+      "answer": "c.root_function_group = 'IVI/Display' AND c.symptom = 'Display malfunction'"
+    },
+    {
+      "id": 6, "name": "バックカメラ",
+      "queries": ["バックカメラが映らない", "バックで下がるとき画面に何も映らない"],
+      "answer": "lower(c.summary) LIKE '%rear%camera%' OR lower(c.summary) LIKE '%backup camera%' OR lower(c.summary) LIKE '%back up camera%' OR lower(c.summary) LIKE '%rearview camera%'"
+    },
+    {
+      "id": 7, "name": "意図しないブレーキ",
+      "queries": ["何もないのに急ブレーキがかかった", "前に何もないのに自動ブレーキが作動した"],
+      "answer": "c.root_function_group IN ('Brakes', 'ADAS') AND c.symptom = 'Unintended activation'"
+    },
+    {
+      "id": 8, "name": "エアバッグ",
+      "queries": ["エアバッグが開かなかった", "衝突したのにエアバッグが作動しなかった"],
+      "answer": "c.root_function_group = 'Airbags/Restraints'"
+    },
+    {
+      "id": 9, "name": "現在地のずれ",
+      "queries": ["現在地がずれる", "ナビの自車位置が実際と違う場所に表示される"],
+      "answer": "c.other_detail = 'GPS location drift'"
+    },
+    {
+      "id": 10, "name": "異音",
+      "queries": ["走行中に異音がする", "走っているとガタガタと変な音がする"],
+      "answer": "c.symptom = 'Noise/Vibration'"
+    }
+  ]
+}
