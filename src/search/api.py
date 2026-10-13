@@ -15,6 +15,7 @@ Usage:
 """
 import json
 import sqlite3
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 
@@ -31,7 +32,19 @@ CHUNKS_PATH = ROOT / "data" / "processed" / "complaint_chunks.jsonl"
 EMBEDDINGS_PATH = ROOT / "data" / "processed" / "complaint_chunks.npy"
 META_PATH = ROOT / "data" / "processed" / "complaint_chunks_meta.json"  # embed.py がどのモデルで作ったか
 
-app = FastAPI(title="defect-search-analyzer")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # モデルの読み込みは重い（1分ほど）ので、最初の検索で待たせないよう、起動のときに済ませておく
+    try:
+        semantic_index()
+    except HTTPException as e:
+        print(f"注意: 文章での検索は使えません（{e.detail}）")
+    yield
+
+
+app = FastAPI(title="defect-search-analyzer", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")  # CSS など
 
 
@@ -45,7 +58,7 @@ def connect() -> sqlite3.Connection:
 
 @lru_cache(maxsize=1)
 def semantic_index():
-    """モデルとベクトルを読み込む（重いので、最初に文章で探したときに1回だけ）"""
+    """モデルとベクトルを読み込む（重いので、サーバーの起動のときに1回だけ）"""
     if not CHUNKS_PATH.exists() or not EMBEDDINGS_PATH.exists() or not META_PATH.exists():
         raise HTTPException(500, "ベクトルがありません。先に python src/process/embed.py を実行してください")
     from sentence_transformers import SentenceTransformer  # 読み込みに時間がかかるので、使うときだけ
@@ -141,9 +154,11 @@ class Filters:
             else:
                 where.append(f"c.{FILTER_COLUMNS[name]} = ?")
             params.append(value)
-        if self.keyword:
+        # 言葉はスペースで区切って、すべてが入っている苦情だけを残す（順番は問わない）
+        # 「water leak」なら「water was leaking」も残る。LIKE は英字の大文字・小文字を区別しない
+        for word in (self.keyword or "").split():
             where.append("c.summary LIKE ?")
-            params.append(f"%{self.keyword}%")
+            params.append(f"%{word}%")
         if not self.include_duplicates:
             where.append("c.duplicate_of IS NULL")
         return ("WHERE " + " AND ".join(where) if where else ""), params

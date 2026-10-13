@@ -14,7 +14,7 @@
 <main>
   <section class="card">
     <h2>Search by description <small class="tech">(semantic search)</small></h2>
-    <p class="hint">Describe the problem in your own words. Complaints with a similar meaning are found even if the exact words differ. Japanese also works (日本語でも検索できます), but English gives better results because the complaints are written in English.</p>
+    <p class="hint">Describe the problem in your own words. Complaints with a similar meaning are found even if the exact words differ. Japanese also works (日本語でも検索できます), but English gives better results because the complaints are written in English. To find complaints that contain specific words, use <b>Contains words</b> under Filter.</p>
     <div class="query">
       <input type="text" id="q" placeholder="e.g. engine stalled while driving in the rain">
       <button class="primary" id="q-search">Search</button>
@@ -24,6 +24,7 @@
   <section class="card">
     <h2>Filter</h2>
     <div class="filters" id="filters"></div>
+    <p class="hint"><b>Contains words</b> keeps only complaints that include every word you type, in any order (English). Parts of words also match: “leak” finds “leaking” and “leaked”.</p>
     <div class="actions">
       <button class="primary" id="search">Apply</button>
       <button id="reset">Clear all</button>
@@ -90,7 +91,7 @@ function buildFilters() {
   for (const [name, label] of FILTERS) {
     html += `<div><label for="f-${name}">${label}</label><select id="f-${name}"></select></div>`;
   }
-  html += `<div><label for="f-keyword">Keyword in text</label><input type="text" id="f-keyword" placeholder="e.g. rain, camera"></div>`;
+  html += `<div><label for="f-keyword">Contains words</label><input type="text" id="f-keyword" placeholder="e.g. water leak"></div>`;
   document.getElementById("filters").innerHTML = html;
 }
 
@@ -114,12 +115,17 @@ async function loadOptions() {
 }
 
 // ② 選んだ条件で検索 API を呼ぶ
+//    何回か続けて押したときは、最後に押した検索の結果だけを出す（先に押した分があとから届いても捨てる）
+let latestRequest = 0;
 async function search() {
   const params = currentParams();
   params.set("limit", PAGE_SIZE);
   params.set("offset", offset);
+  const request = ++latestRequest;
+  document.getElementById("count").textContent = "Searching...";
   const res = await fetch("/api/complaints?" + params);
   const data = await res.json();
+  if (request !== latestRequest) return;
   showResults(data);
 }
 

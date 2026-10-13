@@ -14,7 +14,6 @@ Usage:
     最初のモデル（MiniLM）が一度に読めるのは 128 トークン（英語でおよそ 90 語）まで。苦情文の半分
     （273/555件）はそれより長く、そのままだと後半が無視される。そこで文の切れ目で 100 トークン以内の
     部分に分け、検索では苦情ごとに「一番近い部分」の点数を使う。どの部分が近かったかも画面に出せる。
-    いまの e5-base は 512 トークンまで読めるが、近かった部分を短く示せるので、分け方はそのままにしている。
 """
 import json
 import re
@@ -30,14 +29,15 @@ CHUNKS_PATH = ROOT / "data" / "processed" / "complaint_chunks.jsonl"
 EMBEDDINGS_PATH = ROOT / "data" / "processed" / "complaint_chunks.npy"
 META_PATH = ROOT / "data" / "processed" / "complaint_chunks_meta.json"
 
-# 多言語に対応しているので、日本語の質問で英語の苦情を探せる。
-# 最初は「仕様書類似検索」アプリと同じ paraphrase-multilingual-MiniLM-L12-v2 だったが、
-# テスト用の質問セット（data/eval/search_queries.json）で比べて、点数が高かったこちらにした（44% → 50%）
-MODEL_NAME = "intfloat/multilingual-e5-base"
-# e5 は、探される文に "passage: "、質問に "query: " を付ける決まりがある
-PASSAGE_PREFIX = "passage: "
-QUERY_PREFIX = "query: "
-MAX_TOKENS = 100  # 最初のモデルの上限 128 より少し小さくしておく（モデルを比べたときと同じ分け方）
+# 多言語に対応しているので、日本語の質問で英語の苦情を探せる。「仕様書類似検索」アプリと同じモデル。
+# 10/1〜10/13 は multilingual-e5-base を使っていた。質問セット（data/eval/search_queries.json）では
+# 英語でほぼ同じ（61% と 62%）、日本語で e5-base が少し上（44% と 50%）だったが、差がわずかなので、
+# 話をややこしくしないよう前のアプリと同じこちらにそろえた（2026-10-13。Chieko が決定）
+MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+# e5 のモデルでは、探される文に "passage: "、質問に "query: " を付ける決まりがある。MiniLM は付けない
+PASSAGE_PREFIX = ""
+QUERY_PREFIX = ""
+MAX_TOKENS = 100  # MiniLM の上限 128 より少し小さくしておく
 
 
 WORDS_PER_PIECE = 50  # 句点がなく長すぎる文を区切るときの語数

@@ -8,9 +8,19 @@ Usage:
 （complaint_chunks.jsonl）を使うので、違いはモデルだけになる。
 
 2026-10-01 の結果（合計）: paraphrase-multilingual-MiniLM-L12-v2 44% / multilingual-e5-small 44% /
-multilingual-e5-base 50% → e5-base をアプリに採用
+multilingual-e5-base 50% → e5-base をアプリに採用（10/13 に MiniLM に戻した。下を参照）
 
 点数: 上位10件のうち、正解（分類の条件に合う苦情）が何件入ったか。アプリと同じく二重登録は除く。
+
+2026-10-13 から、並べ方を3通りで比べる（日本語の言い方と英語の言い方それぞれで）:
+    意味        意味の近さだけ（いままでのやり方）
+    キーワード  言葉が合っているかだけ（BM25）
+    組み合わせ  2つの順位を組み合わせる（ハイブリッド検索。src/search/hybrid.py）
+
+2026-10-13 の結果（e5-base）: 日本語 意味 50%／キーワード 0%／組み合わせ 50%、
+英語 意味 62%／キーワード 58%／組み合わせ 64%。キーワードは短い言い方でしか効かず、文章では変わらない
+→ アプリはセマンティック検索（意味だけ）のまま。MiniLM は 日本語 44%・英語 61%。
+e5-base との差がわずかなので、前のアプリと同じ MiniLM にそろえた
 """
 import json
 import sqlite3
@@ -21,6 +31,9 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src" / "search"))
+from hybrid import KeywordIndex, fuse  # noqa: E402  アプリと同じ部品を使う
+
 DB_PATH = ROOT / "data" / "processed" / "defects.db"
 CHUNKS_PATH = ROOT / "data" / "processed" / "complaint_chunks.jsonl"
 EMBEDDINGS_PATH = ROOT / "data" / "processed" / "complaint_chunks.npy"
@@ -77,30 +90,51 @@ def main():
     embeddings = chunk_embeddings(model, model_name, [c["text"] for c in chunks])
     query_prefix, _ = prefixes(model_name)
 
+    keyword_index = KeywordIndex({r[0]: r[1] or "" for r in con.execute(
+        "SELECT odi_number, summary FROM complaints WHERE duplicate_of IS NULL")})
+
+    def rankings(q: str) -> dict[str, list[int]]:
+        vec = model.encode([query_prefix + q], convert_to_numpy=True, normalize_embeddings=True)[0]
+        scores = embeddings @ vec
+        best: dict[int, float] = {}  # 苦情ごとに、一番近い部分の点数（アプリと同じ）
+        for chunk, score in zip(chunks, scores):
+            odi = chunk["odi_number"]
+            if odi in searchable and score > best.get(odi, -1.0):
+                best[odi] = float(score)
+        meaning = sorted(best, key=lambda odi: -best[odi])
+        kw = keyword_index.scores(q, searchable)
+        keyword = sorted(kw, key=lambda odi: -kw[odi])
+        return {"意味": meaning, "キーワード": keyword, "組み合わせ": fuse(meaning, keyword)}
+
+    methods = ["意味", "キーワード", "組み合わせ"]
+    langs = [("日本語", "queries"), ("英語", "queries_en")]
+    totals = {(lang, m): [0, 0] for lang, _ in langs for m in methods}
     print(f"モデル: {model_name}\n")
-    print(f"| # | テーマ | 探す文 | 正解の数 | 上位{TOP_N}件中の正解 | 最初の正解の順位 |")
-    print("|---|---|---|---|---|---|")
-    total_hits = total_possible = 0
+    print(f"各欄: 上位{TOP_N}件中の正解（最初の正解の順位。- は正解が出てこない）\n")
+    print("| # | テーマ | 探す文 | 正解の数 | " + " | ".join(methods) + " |")
+    print("|---|---|---|---|" + "---|" * len(methods))
     for topic in topics:
         answer = {r[0] for r in con.execute(
             f"SELECT c.odi_number FROM complaints c WHERE c.duplicate_of IS NULL AND ({topic['answer']})")}
-        for q in topic["queries"]:
-            vec = model.encode([query_prefix + q], convert_to_numpy=True, normalize_embeddings=True)[0]
-            scores = embeddings @ vec
-            best: dict[int, float] = {}  # 苦情ごとに、一番近い部分の点数（アプリと同じ）
-            for chunk, score in zip(chunks, scores):
-                odi = chunk["odi_number"]
-                if odi in searchable and score > best.get(odi, -1.0):
-                    best[odi] = float(score)
-            ranking = sorted(best, key=lambda odi: -best[odi])
-            hits = sum(odi in answer for odi in ranking[:TOP_N])
-            first = next((i + 1 for i, odi in enumerate(ranking) if odi in answer), None)
-            possible = min(TOP_N, len(answer))
-            total_hits += hits
-            total_possible += possible
-            print(f"| {topic['id']} | {topic['name']} | {q} | {len(answer)} | {hits} / {possible} | {first} |")
+        possible = min(TOP_N, len(answer))
+        for lang, key in langs:
+            for q in topic.get(key, []):
+                cells = []
+                for m, ranking in rankings(q).items():
+                    hits = sum(odi in answer for odi in ranking[:TOP_N])
+                    first = next((i + 1 for i, odi in enumerate(ranking) if odi in answer), "-")
+                    totals[(lang, m)][0] += hits
+                    totals[(lang, m)][1] += possible
+                    cells.append(f"{hits}/{possible} ({first})")
+                print(f"| {topic['id']} | {topic['name']} | {q} | {len(answer)} | " + " | ".join(cells) + " |")
     con.close()
-    print(f"\n合計: {total_hits} / {total_possible}（{total_hits / total_possible:.0%}）")
+
+    print("\n合計")
+    print("| 言い方 | " + " | ".join(methods) + " |")
+    print("|---|" + "---|" * len(methods))
+    for lang, _ in langs:
+        cells = [f"{h} / {n}（{h / n:.0%}）" for h, n in (totals[(lang, m)] for m in methods)]
+        print(f"| {lang} | " + " | ".join(cells) + " |")
 
 
 if __name__ == "__main__":
