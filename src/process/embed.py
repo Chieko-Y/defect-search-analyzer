@@ -42,6 +42,19 @@ MAX_TOKENS = 100  # MiniLM の上限 128 より少し小さくしておく
 
 WORDS_PER_PIECE = 50  # 句点がなく長すぎる文を区切るときの語数
 
+# 個人情報を黒塗りにしたときに NHTSA が付ける決まり文句（41件）と、名前や日付を隠した印（[XXX] など）。
+# 苦情の中身とは関係がないので、ベクトルにする前に除く。除かないと「information」などで探したとき、
+# 決まり文句の部分が近いという理由で上位に並ぶ（2026-10-14。Chieko が決定。work_log 2章㉛）
+REDACTION_NOTICE = re.compile(
+    r"INFORMATION\s+REDACTED\s+PURSUANT\s+TO\s+THE\s+FREEDOM\s+OF\s+INFORMATION\s+ACT\s*\(FOIA\),?"
+    r"\s*5\s*U\.S\.C\.?\s*552\(B\)\(6\)\.?", re.IGNORECASE)
+REDACTION_MASK = re.compile(r"\[XXX\]|\bXXX\b|\*\*\*")
+
+
+def remove_redactions(text: str) -> str:
+    text = REDACTION_MASK.sub(" ", REDACTION_NOTICE.sub(" ", text))
+    return re.sub(r"\s{2,}", " ", text).strip()
+
 
 def split_sentences(text: str, count_tokens) -> list[str]:
     """. ! ? のあとの空白で文に分ける（略語で切れることもあるが、検索には十分）
@@ -84,7 +97,7 @@ def main():
 
     chunks = []
     for odi_number, summary in complaints:
-        for text in make_chunks(summary or "", count_tokens):
+        for text in make_chunks(remove_redactions(summary or ""), count_tokens):
             chunks.append({"odi_number": odi_number, "text": text})
 
     # normalize_embeddings=True にしておくと、内積（@）がそのままコサイン類似度になる
