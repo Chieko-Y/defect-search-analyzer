@@ -32,6 +32,11 @@ CHUNKS_PATH = ROOT / "data" / "processed" / "complaint_chunks.jsonl"
 EMBEDDINGS_PATH = ROOT / "data" / "processed" / "complaint_chunks.npy"
 META_PATH = ROOT / "data" / "processed" / "complaint_chunks_meta.json"  # embed.py がどのモデルで作ったか
 
+# 1位の近さがこれより低いときは、画面に「近い苦情が見つからない」と注意を出す（結果は消さない）。
+# 質問セットでは、正解のある質問の1位は 0.49 以上、データにない話題（Android Auto など10個）の1位は
+# 0.47 以下だった。正解と外れの苦情は点数が重なるので、結果を消す線にはしない（2026-10-14。Chieko が決定。
+# work_log 2章㉞）
+LOW_MATCH_SCORE = 0.48
 
 
 @asynccontextmanager
@@ -205,6 +210,7 @@ def search(filters: Filters = Depends(), q: str | None = None, limit: int = 50, 
 
     q（文章）があるときは、条件に合う苦情を、q と意味が近い順に並べる。
     件数は絞り込まない（意味の近さは「どのくらい似ているか」で、合う・合わないの線は引けないため）。
+    1位の近さが LOW_MATCH_SCORE より低いときは low_match を true にする（画面が注意を出す）。
     """
     where_sql, params = filters.where()
     limit = min(limit, 200)
@@ -232,7 +238,8 @@ def search(filters: Filters = Depends(), q: str | None = None, limit: int = 50, 
         )}
     con.close()
     items = [{**rows[odi], "score": round(score, 3), "matched_text": text} for odi, score, text in page]
-    return {"total": len(ranked), "items": items}
+    low_match = bool(ranked) and ranked[0][1] < LOW_MATCH_SCORE
+    return {"total": len(ranked), "items": items, "low_match": low_match}
 
 
 @app.get("/api/complaints/{odi_number}")

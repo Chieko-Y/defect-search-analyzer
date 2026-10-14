@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Defect Search</title>
-  <link rel="stylesheet" href="/static/style.css?v=2">
+  <link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 <body>
 <header>
@@ -34,6 +34,7 @@
 
   <section class="card">
     <h2>Results <span class="count" id="count"></span></h2>
+    <p class="notice" id="low-match" hidden>No closely matching complaints were found, so the results below may be unrelated. Try describing the problem differently, or use <b>Contains words</b> under Filter.</p>
     <table>
       <thead>
         <tr>
@@ -143,6 +144,8 @@ function showResults(data) {
   document.body.classList.toggle("by-meaning", byMeaning);
   document.getElementById("text-col").textContent = byMeaning ? "Best-matching text" : "Evidence";
   document.getElementById("count").textContent = `${data.total} complaints` + (byMeaning ? " (most similar first)" : "");
+  // 1位でも近さが低いときは、関係のない結果かもしれないと知らせる（結果は消さない）
+  document.getElementById("low-match").hidden = !(byMeaning && data.low_match);
   const tbody = document.getElementById("results");
   tbody.innerHTML = data.items.map(r => `
     <tr data-odi="${r.odi_number}">
