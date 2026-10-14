@@ -9,7 +9,7 @@
 <body>
 <header>
   <h1>Defect Search (RAV4 2022–2025)</h1>
-  <p>Source: NHTSA complaint data. Classified with rules v7 (AI + human review)</p>
+  <p>Source: NHTSA complaint data. Classified with rules v7 (AI + human review). <a href="/analysis">Analysis →</a></p>
 </header>
 <main>
   <section class="card">
@@ -86,13 +86,17 @@ function currentParams() {
   return params;
 }
 
-// 最初に一度だけ、空のプルダウンを作る
+// 最初に一度だけ、プルダウンを作る
+// URL に条件があれば（例: 分析画面の棒から来た /?root=Engine）、それを選んだ状態にしておく
 function buildFilters() {
+  const initial = new URLSearchParams(location.search);
   let html = "";
   for (const [name, label] of FILTERS) {
-    html += `<div><label for="f-${name}">${label}</label><select id="f-${name}"></select></div>`;
+    const v = initial.get(name);
+    const selected = v ? `<option value="${escapeHtml(v)}" selected></option>` : "";
+    html += `<div><label for="f-${name}">${label}</label><select id="f-${name}">${selected}</select></div>`;
   }
-  html += `<div><label for="f-keyword">Contains words</label><input type="text" id="f-keyword" placeholder="e.g. water leak"></div>`;
+  html += `<div><label for="f-keyword">Contains words</label><input type="text" id="f-keyword" placeholder="e.g. water leak" value="${escapeHtml(initial.get("keyword"))}"></div>`;
   document.getElementById("filters").innerHTML = html;
 }
 

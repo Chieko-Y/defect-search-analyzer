@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Defect Analysis</title>
+  <link rel="stylesheet" href="/static/style.css?v=3">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+<header>
+  <h1>Defect Analysis (RAV4 2022–2025)</h1>
+  <p>Source: NHTSA complaint data. Classified with rules v7 (AI + human review). Duplicates excluded. <a href="/">← Search</a></p>
+</header>
+<main>
+  <section class="card">
+    <h2>A. Which functions and symptoms get the most complaints? <span class="count" id="total"></span></h2>
+    <p class="hint">Click a bar to see those complaints on the search page.</p>
+    <div class="chart-grid">
+      <div>
+        <h3>Root function</h3>
+        <div class="chart-box" id="box-root"><canvas id="chart-root"></canvas></div>
+      </div>
+      <div>
+        <h3>Symptom</h3>
+        <div class="chart-box" id="box-symptom"><canvas id="chart-symptom"></canvas></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+// 棒の色：1つの系列なので1色。Unknown・Other は「分からない・その他」なので灰色にして目立たせない
+const BAR = "#0969da";
+const MUTED = "#afb8c1";
+const BAR_HEIGHT = 26;  // 1本あたりの高さ（px）。棒の数に合わせてグラフの高さを決める
+
+// 横向きの棒グラフを描く。棒をクリックすると、その条件で検索画面を開く（分析と検索をつなぐ）
+function drawBars(name, rows) {
+  document.getElementById(`box-${name}`).style.height = `${rows.length * BAR_HEIGHT + 40}px`;
+  new Chart(document.getElementById(`chart-${name}`), {
+    type: "bar",
+    data: {
+      labels: rows.map(r => r.value),
+      datasets: [{
+        data: rows.map(r => r.n),
+        backgroundColor: rows.map(r => ["Unknown", "Other"].includes(r.value) ? MUTED : BAR),
+        borderRadius: 4,
+        barPercentage: 0.8,
+      }],
+    },
+    options: {
+      indexAxis: "y",  // 横向き（項目名が長いので）
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },  // 系列が1つなので凡例は出さない（見出しで分かる）
+        tooltip: { callbacks: { label: c => `${c.parsed.x} complaints` } },
+      },
+      scales: {
+        x: { beginAtZero: true, grid: { color: "#eaeef2" }, ticks: { precision: 0 } },
+        y: { grid: { display: false } },
+      },
+      onClick: (e, bars) => {
+        if (bars.length) location.href = `/?${name}=${encodeURIComponent(rows[bars[0].index].value)}`;
+      },
+      onHover: (e, bars) => { e.native.target.style.cursor = bars.length ? "pointer" : "default"; },
+    },
+  });
+}
+
+async function main() {
+  // 絞り込みの選択肢の件数（/api/options）を、そのままグラフにする。二重登録は API が除いている
+  const options = await (await fetch("/api/options")).json();
+  const total = options.root.reduce((sum, r) => sum + r.n, 0);
+  document.getElementById("total").textContent = `(${total} complaints)`;
+  drawBars("root", options.root);
+  drawBars("symptom", options.symptom);
+}
+
+main();
+</script>
+</body>
+</html>

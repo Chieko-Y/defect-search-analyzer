@@ -11,7 +11,7 @@ Usage:
     GET /api/options               絞り込みの選択肢と件数
     GET /api/complaints            条件で絞り込んだ苦情の一覧（q を付けると、文章の意味が近い順）
     GET /api/complaints/{番号}     1件の詳細
-画面（HTML と JavaScript）は web/ にある。
+画面（HTML と JavaScript）は web/ にある。分析の画面（/analysis）のグラフも /api/options の件数を使う。
 """
 import json
 import sqlite3
@@ -105,6 +105,11 @@ def index_page():
 @app.get("/detail")
 def detail_page():
     return FileResponse(WEB_DIR / "detail.html")
+
+
+@app.get("/analysis")
+def analysis_page():
+    return FileResponse(WEB_DIR / "analysis.html")
 
 
 # ---- API ----
