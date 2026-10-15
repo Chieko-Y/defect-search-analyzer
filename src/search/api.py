@@ -9,9 +9,10 @@ Usage:
 
 窓口（API）:
     GET /api/options               絞り込みの選択肢と件数
+    GET /api/pairs                 機能と症状の組み合わせごとの件数（分析の画面の B で使う）
     GET /api/complaints            条件で絞り込んだ苦情の一覧（q を付けると、文章の意味が近い順）
     GET /api/complaints/{番号}     1件の詳細
-画面（HTML と JavaScript）は web/ にある。分析の画面（/analysis）のグラフも /api/options の件数を使う。
+画面（HTML と JavaScript）は web/ にある。分析の画面（/analysis）のグラフは /api/options と /api/pairs の件数を使う。
 """
 import json
 import sqlite3
@@ -203,6 +204,23 @@ def options(filters: Filters = Depends()):
     result["function"] = [dict(r) for r in rows]
     con.close()
     return result
+
+
+@app.get("/api/pairs")
+def pairs(filters: Filters = Depends()):
+    """条件に合う苦情を、root の機能と症状の組み合わせごとに数える（多い順）
+
+    例: safety_impact=3 なら「Engine × Unintended activation 35件」のように、危ない苦情の中身が分かる。
+    """
+    where_sql, params = filters.where()
+    con = connect()
+    rows = con.execute(
+        f"SELECT c.root_function_group AS root, c.symptom, COUNT(*) AS n FROM complaints c {where_sql} "
+        "GROUP BY c.root_function_group, c.symptom ORDER BY n DESC, root, c.symptom",
+        params,
+    ).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
 
 
 LIST_COLUMNS = ("c.odi_number, c.model_year, c.date_of_incident, c.powertrain, "

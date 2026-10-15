@@ -34,6 +34,13 @@
       </div>
     </div>
   </section>
+
+  <section class="card">
+    <h2>B. What are the most dangerous complaints (safety impact 3) about?</h2>
+    <p class="hint"><strong id="total-s3"></strong><br>
+      Ranking within these complaints only. Each bar is a pair of root function × symptom. Click a bar to see those complaints on the search page.</p>
+    <div class="chart-box" id="box-s3"><canvas id="chart-s3"></canvas></div>
+  </section>
 </main>
 
 <script>
@@ -42,16 +49,19 @@ const BAR = "#0969da";
 const MUTED = "#afb8c1";
 const BAR_HEIGHT = 26;  // 1本あたりの高さ（px）。棒の数に合わせてグラフの高さを決める
 
+const isVague = v => ["Unknown", "Other"].includes(v);
+
 // 横向きの棒グラフを描く。棒をクリックすると、その条件で検索画面を開く（分析と検索をつなぐ）
-function drawBars(name, rows) {
-  document.getElementById(`box-${name}`).style.height = `${rows.length * BAR_HEIGHT + 40}px`;
+//   bars: [{label, n, muted, query}]  query は検索画面に渡す条件（例: {root: "Engine"}）
+function drawBars(name, bars) {
+  document.getElementById(`box-${name}`).style.height = `${bars.length * BAR_HEIGHT + 40}px`;
   new Chart(document.getElementById(`chart-${name}`), {
     type: "bar",
     data: {
-      labels: rows.map(r => r.value),
+      labels: bars.map(b => b.label),
       datasets: [{
-        data: rows.map(r => r.n),
-        backgroundColor: rows.map(r => ["Unknown", "Other"].includes(r.value) ? MUTED : BAR),
+        data: bars.map(b => b.n),
+        backgroundColor: bars.map(b => b.muted ? MUTED : BAR),
         borderRadius: 4,
         barPercentage: 0.8,
       }],
@@ -67,10 +77,10 @@ function drawBars(name, rows) {
         x: { beginAtZero: true, grid: { color: "#eaeef2" }, ticks: { precision: 0 } },
         y: { grid: { display: false } },
       },
-      onClick: (e, bars) => {
-        if (bars.length) location.href = `/?${name}=${encodeURIComponent(rows[bars[0].index].value)}`;
+      onClick: (e, hit) => {
+        if (hit.length) location.href = "/?" + new URLSearchParams(bars[hit[0].index].query);
       },
-      onHover: (e, bars) => { e.native.target.style.cursor = bars.length ? "pointer" : "default"; },
+      onHover: (e, hit) => { e.native.target.style.cursor = hit.length ? "pointer" : "default"; },
     },
   });
 }
@@ -80,8 +90,22 @@ async function main() {
   const options = await (await fetch("/api/options")).json();
   const total = options.root.reduce((sum, r) => sum + r.n, 0);
   document.getElementById("total").textContent = `(${total} complaints)`;
-  drawBars("root", options.root);
-  drawBars("symptom", options.symptom);
+  // A：機能・症状ごとの件数
+  for (const name of ["root", "symptom"]) {
+    drawBars(name, options[name].map(r => ({
+      label: r.value, n: r.n, muted: isVague(r.value), query: { [name]: r.value },
+    })));
+  }
+
+  // B：危険度3 の苦情を、機能 × 症状の組み合わせで数える
+  const pairs = await (await fetch("/api/pairs?safety_impact=3")).json();
+  const totalS3 = pairs.reduce((sum, p) => sum + p.n, 0);
+  document.getElementById("total-s3").textContent =
+    `${totalS3} complaints rated safety impact 3 — ${Math.round(totalS3 / total * 100)}% of all ${total}`;
+  drawBars("s3", pairs.map(p => ({
+    label: `${p.root} × ${p.symptom}`, n: p.n, muted: isVague(p.root) || isVague(p.symptom),
+    query: { safety_impact: 3, root: p.root, symptom: p.symptom },
+  })));
 }
 
 main();
