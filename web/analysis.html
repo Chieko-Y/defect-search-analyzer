@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Defect Analysis</title>
-  <link rel="stylesheet" href="/static/style.css?v=4">
+  <link rel="stylesheet" href="/static/style.css?v=6">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
@@ -21,7 +21,11 @@
 </header>
 <main>
   <section class="card">
-    <h2>A. Which functions and symptoms get the most complaints? <span class="count" id="total"></span></h2>
+    <h2>A. Which functions and symptoms get the most complaints?</h2>
+    <div class="callout">
+      <strong id="total"></strong>
+      Each bar is a number of complaints.
+    </div>
     <p class="hint">Click a bar to see those complaints on the search page.</p>
     <div class="chart-grid">
       <div>
@@ -37,9 +41,36 @@
 
   <section class="card">
     <h2>B. What are the most dangerous complaints (safety impact 3) about?</h2>
-    <p class="hint"><strong id="total-s3"></strong><br>
-      Ranking within these complaints only. Each bar is a pair of root function × symptom. Click a bar to see those complaints on the search page.</p>
+    <div class="callout">
+      <strong id="total-s3"></strong>
+      Ranking within these complaints only. Each bar is a pair of root function × symptom.
+    </div>
+    <p class="hint">Click a bar to see those complaints on the search page.</p>
     <div class="chart-box" id="box-s3"><canvas id="chart-s3"></canvas></div>
+  </section>
+
+  <section class="card">
+    <h2>D. Do hybrid and gas cars differ?</h2>
+    <div class="callout">
+      <strong>Bars show percentages, not counts.</strong>
+      This data does not tell how many gas and hybrid cars are on the road, so counts cannot be compared directly.
+      Each bar is the share within that car's own complaints: <span id="d-base"></span>
+      <span class="caution">These are shares among complaints people chose to file. They do not show that one car type is more dangerous.</span>
+    </div>
+    <p class="hint"><strong id="d-headline"></strong><br>
+      Plug-in hybrid and unknown powertrain are left out because there are too few. Click a bar to see those complaints on the search page.</p>
+    <h3>Safety impact <span class="tech">0 = inconvenience · 1 = distraction, minor risk · 2 = loss of control, crash risk · 3 = actual crash, injury or fire</span></h3>
+    <div class="chart-box" id="box-d-safety" style="margin-bottom: 24px"><canvas id="chart-d-safety"></canvas></div>
+    <div class="chart-grid">
+      <div>
+        <h3>Root function</h3>
+        <div class="chart-box" id="box-d-root"><canvas id="chart-d-root"></canvas></div>
+      </div>
+      <div>
+        <h3>Symptom</h3>
+        <div class="chart-box" id="box-d-symptom"><canvas id="chart-d-symptom"></canvas></div>
+      </div>
+    </div>
   </section>
 </main>
 
@@ -85,11 +116,91 @@ function drawBars(name, bars) {
   });
 }
 
+// D：ガソリン車とハイブリッド車を並べて比べる。台数が分からないので、件数ではなく
+//     「それぞれの車の苦情の中で何%か」を棒にする（2章㉟）
+const POWERTRAINS = [
+  { key: "gas", label: "Gas", color: "#0969da" },
+  { key: "hybrid", label: "Hybrid", color: "#d1570a" },
+];
+
+//   name: グラフの名前（chart-d-○○）、field: 検索画面に渡す条件の名前
+//   counts: {gas: {値: 件数}, hybrid: {...}}、totals: {gas: 288, hybrid: 249}、labelOf: 値 → 表示名
+function drawCompare(name, field, values, counts, totals, labelOf = v => v) {
+  const pct = (pt, v) => (counts[pt][v] || 0) / totals[pt] * 100;
+  document.getElementById(`box-${name}`).style.height = `${values.length * BAR_HEIGHT * 1.6 + 70}px`;
+  new Chart(document.getElementById(`chart-${name}`), {
+    type: "bar",
+    data: {
+      labels: values.map(labelOf),
+      datasets: POWERTRAINS.map(p => ({
+        label: p.label,
+        data: values.map(v => pct(p.key, v)),
+        backgroundColor: p.color,
+        borderRadius: 4,
+        barPercentage: 0.85,
+        categoryPercentage: 0.8,
+      })),
+    },
+    options: {
+      indexAxis: "y",
+      maintainAspectRatio: false,
+      plugins: {
+        // 2系列なので凡例を出す（色だけに頼らない）
+        legend: { position: "top", align: "start", labels: { boxWidth: 12, color: "#1f2328" } },
+        tooltip: { callbacks: { label: c => {
+          const p = POWERTRAINS[c.datasetIndex];
+          const n = counts[p.key][values[c.dataIndex]] || 0;
+          return `${p.label}: ${c.parsed.x.toFixed(1)}% (${n} of ${totals[p.key]})`;
+        } } },
+      },
+      scales: {
+        x: { beginAtZero: true, grid: { color: "#eaeef2" }, ticks: { callback: v => `${v}%` } },
+        y: { grid: { display: false } },
+      },
+      onClick: (e, hit) => {
+        if (!hit.length) return;
+        const p = POWERTRAINS[hit[0].datasetIndex];
+        location.href = "/?" + new URLSearchParams({ powertrain: p.key, [field]: values[hit[0].index] });
+      },
+      onHover: (e, hit) => { e.native.target.style.cursor = hit.length ? "pointer" : "default"; },
+    },
+  });
+}
+
+async function drawD() {
+  // 車の種類ごとに、絞り込みの選択肢の件数（/api/options）を取ってくる
+  const byPt = {};
+  for (const p of POWERTRAINS) {
+    byPt[p.key] = await (await fetch(`/api/options?powertrain=${p.key}`)).json();
+  }
+  const countsOf = field => Object.fromEntries(POWERTRAINS.map(p =>
+    [p.key, Object.fromEntries(byPt[p.key][field].map(r => [r.value, r.n]))]));
+  const totals = Object.fromEntries(POWERTRAINS.map(p =>
+    [p.key, byPt[p.key].root.reduce((sum, r) => sum + r.n, 0)]));
+  // 並びは、2つを合わせた件数の多い順（どちらの車でも同じ並び）
+  const order = field => {
+    const c = countsOf(field);
+    const all = [...new Set(POWERTRAINS.flatMap(p => Object.keys(c[p.key])))];
+    return all.sort((a, b) => (c.gas[b] || 0) + (c.hybrid[b] || 0) - (c.gas[a] || 0) - (c.hybrid[a] || 0));
+  };
+
+  const safety = countsOf("safety_impact");
+  const s3 = p => Math.round((safety[p][3] || 0) / totals[p] * 100);
+  document.getElementById("d-headline").textContent =
+    `Safety impact 3: ${s3("hybrid")}% of hybrid complaints vs ${s3("gas")}% of gas complaints`;
+  document.getElementById("d-base").textContent =
+    `“% of the ${totals.gas} gas complaints” and “% of the ${totals.hybrid} hybrid complaints”.`;
+
+  drawCompare("d-safety", "safety_impact", [3, 2, 1, 0], safety, totals, v => `Safety ${v}`);
+  drawCompare("d-root", "root", order("root"), countsOf("root"), totals);
+  drawCompare("d-symptom", "symptom", order("symptom"), countsOf("symptom"), totals);
+}
+
 async function main() {
   // 絞り込みの選択肢の件数（/api/options）を、そのままグラフにする。二重登録は API が除いている
   const options = await (await fetch("/api/options")).json();
   const total = options.root.reduce((sum, r) => sum + r.n, 0);
-  document.getElementById("total").textContent = `(${total} complaints)`;
+  document.getElementById("total").textContent = `All ${total} complaints (duplicates excluded)`;
   // A：機能・症状ごとの件数
   for (const name of ["root", "symptom"]) {
     drawBars(name, options[name].map(r => ({
@@ -106,6 +217,8 @@ async function main() {
     label: `${p.root} × ${p.symptom}`, n: p.n, muted: isVague(p.root) || isVague(p.symptom),
     query: { safety_impact: 3, root: p.root, symptom: p.symptom },
   })));
+
+  await drawD();
 }
 
 main();
