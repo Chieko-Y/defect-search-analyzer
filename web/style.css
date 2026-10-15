@@ -51,7 +51,10 @@ tbody tr:hover { background: #f0f6ff; cursor: pointer; }
 .callout { margin: 0 0 12px; padding: 12px 16px; background: #f0f6ff; border-left: 4px solid var(--accent);
   border-radius: 6px; font-size: 15px; line-height: 1.7; }
 .callout strong { display: block; font-size: 16px; }
+.callout .next-step { display: block; margin-top: 6px; font-weight: 600; }
 .callout .caution { display: block; margin-top: 6px; font-weight: 600; color: #9a3412; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; margin-right: 18px; font-size: 14px; color: var(--text); }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
 .notice { margin: 0 0 10px; padding: 8px 12px; background: var(--mark); border-radius: 6px; font-size: 13px; }
 .query { display: flex; gap: 8px; }
 .query input { flex: 1; min-width: 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Defect Analysis</title>
-  <link rel="stylesheet" href="/static/style.css?v=6">
+  <link rel="stylesheet" href="/static/style.css?v=8">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
@@ -50,6 +50,18 @@
   </section>
 
   <section class="card">
+    <h2>C. Safety impact 2: moving or stopped?</h2>
+    <div class="callout">
+      <strong id="total-s2"></strong>
+      Safety impact 2 means the problem <em>could</em> cause loss of control or a crash. By our rule, the same problem gets the same score
+      whether the car was moving or stopped. This chart shows when these complaints actually happened.
+      <span class="next-step">To decide what to look at first, start with the moving ones (e.g. highway driving).</span>
+    </div>
+    <p class="hint"><span id="c-legend"></span><br>Click a bar to see those complaints on the search page.</p>
+    <div class="chart-box" id="box-s2"><canvas id="chart-s2"></canvas></div>
+  </section>
+
+  <section class="card">
     <h2>D. Do hybrid and gas cars differ?</h2>
     <div class="callout">
       <strong>Bars show percentages, not counts.</strong>
@@ -83,7 +95,8 @@ const BAR_HEIGHT = 26;  // 1本あたりの高さ（px）。棒の数に合わ�
 const isVague = v => ["Unknown", "Other"].includes(v);
 
 // 横向きの棒グラフを描く。棒をクリックすると、その条件で検索画面を開く（分析と検索をつなぐ）
-//   bars: [{label, n, muted, query}]  query は検索画面に渡す条件（例: {root: "Engine"}）
+//   bars: [{label, n, muted, color, query}]  query は検索画面に渡す条件（例: {root: "Engine"}）
+//   color を指定しないときは BAR（muted なら灰色）
 function drawBars(name, bars) {
   document.getElementById(`box-${name}`).style.height = `${bars.length * BAR_HEIGHT + 40}px`;
   new Chart(document.getElementById(`chart-${name}`), {
@@ -92,7 +105,7 @@ function drawBars(name, bars) {
       labels: bars.map(b => b.label),
       datasets: [{
         data: bars.map(b => b.n),
-        backgroundColor: bars.map(b => b.muted ? MUTED : BAR),
+        backgroundColor: bars.map(b => b.color || (b.muted ? MUTED : BAR)),
         borderRadius: 4,
         barPercentage: 0.8,
       }],
@@ -114,6 +127,34 @@ function drawBars(name, bars) {
       onHover: (e, hit) => { e.native.target.style.cursor = hit.length ? "pointer" : "default"; },
     },
   });
+}
+
+// C：危険度2 を、起きたとき（trigger）で分ける。ルールでは止まっているか走っているかで点数を変えないので
+//     （2章⑰）、ここで区別する。trigger を「走っている・止まっている・分からない」の3つにまとめて色を分ける
+const MOTION = {
+  moving: { label: "Moving", color: "#bf3989",
+            triggers: ["Driving (road type unknown)", "Highway driving", "City driving", "Starting from stop", "Low speed/Parking"] },
+  stopped: { label: "Stopped", color: BAR, triggers: ["Stationary", "Engine start"] },
+  unclear: { label: "Unclear", color: MUTED, triggers: [] },  // Unknown・After specific operation・Always など
+};
+const motionOf = t => Object.keys(MOTION).find(k => MOTION[k].triggers.includes(t)) || "unclear";
+
+async function drawC(total) {
+  const options = await (await fetch("/api/options?safety_impact=2")).json();
+  const rows = options.trigger;
+  const totalS2 = rows.reduce((sum, r) => sum + r.n, 0);
+  const pct = n => Math.round(n / totalS2 * 100);
+  document.getElementById("total-s2").textContent =
+    `${totalS2} complaints rated safety impact 2 — ${Math.round(totalS2 / total * 100)}% of all ${total}`;
+  // 凡例と合計（色だけに頼らず、名前と件数も書く）
+  document.getElementById("c-legend").innerHTML = Object.entries(MOTION).map(([k, m]) => {
+    const n = rows.filter(r => motionOf(r.value) === k).reduce((sum, r) => sum + r.n, 0);
+    return `<span class="legend-item"><span class="swatch" style="background:${m.color}"></span>${m.label}: <strong>${n}</strong> (${pct(n)}%)</span>`;
+  }).join("");
+  drawBars("s2", rows.map(r => ({
+    label: r.value, n: r.n, color: MOTION[motionOf(r.value)].color,
+    query: { safety_impact: 2, trigger: r.value },
+  })));
 }
 
 // D：ガソリン車とハイブリッド車を並べて比べる。台数が分からないので、件数ではなく
@@ -218,6 +259,7 @@ async function main() {
     query: { safety_impact: 3, root: p.root, symptom: p.symptom },
   })));
 
+  await drawC(total);
   await drawD();
 }
 
