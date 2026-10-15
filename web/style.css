@@ -16,7 +16,18 @@ body {
 header { background: var(--card); border-bottom: 1px solid var(--border); padding: 12px 24px; }
 header h1 { margin: 0; font-size: 18px; }
 header p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
-main { max-width: 1200px; margin: 0 auto; padding: 16px 24px; }
+main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 16px 24px; }
+
+/* Left menu: the sidebar spans both rows, the header and main sit to its right */
+body { display: grid; grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: auto 1fr; min-height: 100vh; }
+.sidebar { grid-row: 1 / span 2; position: sticky; top: 0; align-self: start; height: 100vh;
+  background: #13294b; color: #fff; padding: 20px 12px; }
+.app-name { font-size: 17px; font-weight: 700; padding: 0 10px 16px; margin-bottom: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.2); }
+.app-name span { display: block; font-size: 11px; font-weight: normal; color: rgba(255, 255, 255, 0.65); }
+.sidebar nav { display: flex; flex-direction: column; gap: 6px; }
+.sidebar nav a { padding: 10px 14px; border-radius: 8px; color: rgba(255, 255, 255, 0.85); font-size: 15px; font-weight: 600; text-decoration: none; }
+.sidebar nav a:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.sidebar nav a.current { background: #2f81f7; color: #fff; box-shadow: 0 2px 8px rgba(47, 129, 247, 0.5); }
 a { color: var(--accent); }
 
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
@@ -60,6 +71,12 @@ mark { background: var(--mark); }
 h2 { font-size: 15px; margin: 0 0 10px; }
 
 @media (max-width: 640px) {
+  body { grid-template-columns: 1fr; }
+  .sidebar { grid-row: auto; position: static; height: auto; padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .app-name { border: 0; padding: 0; margin: 0; }
+  .app-name span { display: none; }
+  .sidebar nav { flex-direction: row; }
+  .sidebar nav a { padding: 6px 12px; font-size: 14px; }
   main { padding: 12px 16px; }
   .detail-grid { grid-template-columns: 1fr; }
   .detail-grid dt { margin-top: 6px; }
