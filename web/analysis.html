@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Defect Analysis</title>
-  <link rel="stylesheet" href="/static/style.css?v=9">
+  <link rel="stylesheet" href="/static/style.css?v=10">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
@@ -93,6 +93,13 @@
       and so have more complaints in total: <span id="e-base"></span>
       <span class="caution">Sales by model year are not in this data, so a bigger share does not prove that model year is worse.</span>
     </div>
+    <h3>Overview: all problems at once</h3>
+    <div class="tabs" id="e-tabs" role="tablist"></div>
+    <p class="hint">Each row is colored on its own: the darkest cell is the model year where that problem's share is highest.
+      Problems with fewer than 10 complaints are left out (too few to compare). Click a row to see it in the chart below.</p>
+    <div class="heatmap-wrap"><table class="heatmap" id="e-heatmap"></table></div>
+
+    <h3 id="e-detail">One problem in detail</h3>
     <div class="chart-control">
       <label for="e-problem">Problem</label>
       <select id="e-problem"></select>
@@ -338,7 +345,51 @@ async function drawE() {
       },
     });
   };
-  select.addEventListener("change", draw);
+  select.addEventListener("change", () => { draw(); markRow(); });
+
+  // 全体を見渡す表（ヒートマップ）。機能・症状・組み合わせをタブで切りかえる
+  // 行ごとに色の濃さを決める（その問題の中で、どの年式が一番多いかを見るため。行どうしは比べない）
+  const HEAT = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95"];  // 薄い → 濃い
+  const MIN_TOTAL = 10;  // これより少ない問題は、割合がぶれやすいので表に出さない
+  const tabs = document.getElementById("e-tabs");
+  const table = document.getElementById("e-heatmap");
+  let group = select.value.split(":")[0];
+  const markRow = () => table.querySelectorAll("tbody tr").forEach(tr =>
+    tr.classList.toggle("selected", tr.dataset.key === select.value));
+  const drawTable = () => {
+    tabs.innerHTML = groups.map(([g, title]) =>
+      `<button role="tab" data-group="${g}" aria-selected="${g === group}">${title}</button>`).join("");
+    const keys = Object.keys(problems).filter(k => k.startsWith(group + ":") && totalOf(k) >= MIN_TOTAL)
+      .sort((a, b) => totalOf(b) - totalOf(a));
+    let html = `<thead><tr><th>Problem</th><th class="num">Total</th>` +
+      modelYears.map(my => `<th class="num">${my} model</th>`).join("") + "</tr></thead><tbody>";
+    for (const k of keys) {
+      const shares = modelYears.map(my => problems[k].countOf(my) / totals[my] * 100);
+      const max = Math.max(...shares);
+      html += `<tr data-key="${escapeHtml(k)}"><td>${escapeHtml(problems[k].label)}</td><td class="num">${totalOf(k)}</td>` +
+        modelYears.map((my, i) => {
+          const step = max ? Math.round(shares[i] / max * (HEAT.length - 1)) : 0;
+          const n = problems[k].countOf(my);
+          return `<td class="num heat${step >= 4 ? " dark" : ""}" style="background:${HEAT[step]}" ` +
+            `title="${n} of ${totals[my]} complaints">${shares[i].toFixed(0)}%</td>`;
+        }).join("") + "</tr>";
+    }
+    table.innerHTML = html + "</tbody>";
+    markRow();
+  };
+  tabs.addEventListener("click", e => {
+    const g = e.target.dataset?.group;
+    if (g) { group = g; drawTable(); }
+  });
+  table.addEventListener("click", e => {
+    const tr = e.target.closest("tbody tr");
+    if (!tr) return;
+    select.value = tr.dataset.key;
+    draw();
+    markRow();
+    document.getElementById("e-detail").scrollIntoView({ behavior: "smooth" });
+  });
+  drawTable();
   draw();
 }
 

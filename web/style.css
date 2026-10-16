@@ -92,3 +92,16 @@ h2 { font-size: 15px; margin: 0 0 10px; }
 .chart-control { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
 .chart-control label { font-weight: 600; }
 .chart-control select { min-width: 280px; max-width: 100%; padding: 5px 6px; border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.tabs button { padding: 5px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); font: inherit; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.heatmap-wrap { overflow-x: auto; margin-bottom: 20px; }
+.heatmap { border-collapse: separate; border-spacing: 2px; font-size: 14px; }
+.heatmap th { font-weight: 600; color: var(--muted); padding: 4px 10px; text-align: left; }
+.heatmap td { padding: 5px 10px; white-space: nowrap; }
+.heatmap .num { text-align: right; }
+.heatmap td.heat { min-width: 76px; border-radius: 4px; color: var(--text); }
+.heatmap td.heat.dark { color: #fff; font-weight: 600; }
+.heatmap tbody tr { cursor: pointer; }
+.heatmap tbody tr:hover td:first-child { text-decoration: underline; }
+.heatmap tbody tr.selected td:first-child { font-weight: 700; color: var(--accent); }
