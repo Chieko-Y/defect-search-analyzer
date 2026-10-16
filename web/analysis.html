@@ -95,8 +95,9 @@
     </div>
     <h3>Overview: all problems at once</h3>
     <div class="tabs" id="e-tabs" role="tablist"></div>
-    <p class="hint">Each row is colored on its own: the darkest cell is the model year where that problem's share is highest.
+    <p class="hint">Each cell is compared with that problem's own average across the model years.
       Problems with fewer than 10 complaints are left out (too few to compare). Click a row to see it in the chart below.</p>
+    <p class="hint" id="e-legend"></p>
     <div class="heatmap-wrap"><table class="heatmap" id="e-heatmap"></table></div>
 
     <h3 id="e-detail">One problem in detail</h3>
@@ -348,8 +349,18 @@ async function drawE() {
   select.addEventListener("change", () => { draw(); markRow(); });
 
   // 全体を見渡す表（ヒートマップ）。機能・症状・組み合わせをタブで切りかえる
-  // 行ごとに色の濃さを決める（その問題の中で、どの年式が一番多いかを見るため。行どうしは比べない）
-  const HEAT = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95"];  // 薄い → 濃い
+  // 色は、その問題の年式の平均と比べて決める（多い＝赤、少ない＝青、平均くらい＝灰色）。行どうしは比べない
+  //   ratio = その年式の割合 ÷ 4つの年式の割合の平均。色だけに頼らないよう、大きく違うところには ▲▼ も付ける
+  const HEAT = [
+    { min: 1.5, color: "#d6403f", mark: "▲", dark: true, label: "1.5× average or more" },
+    { min: 1.2, color: "#f2a8a3", mark: "", dark: false, label: "a bit more" },
+    { min: 0.8, color: "#f0efec", mark: "", dark: false, label: "about average" },
+    { min: 0.5, color: "#9ec5f4", mark: "", dark: false, label: "a bit less" },
+    { min: 0, color: "#2a78d6", mark: "▼", dark: true, label: "half of average or less" },
+  ];
+  const heatOf = ratio => HEAT.find(h => ratio >= h.min);
+  document.getElementById("e-legend").innerHTML = HEAT.map(h =>
+    `<span class="legend-item"><span class="swatch" style="background:${h.color}"></span>${h.mark} ${h.label}</span>`).join("");
   const MIN_TOTAL = 10;  // これより少ない問題は、割合がぶれやすいので表に出さない
   const tabs = document.getElementById("e-tabs");
   const table = document.getElementById("e-heatmap");
@@ -365,13 +376,13 @@ async function drawE() {
       modelYears.map(my => `<th class="num">${my} model</th>`).join("") + "</tr></thead><tbody>";
     for (const k of keys) {
       const shares = modelYears.map(my => problems[k].countOf(my) / totals[my] * 100);
-      const max = Math.max(...shares);
+      const mean = shares.reduce((sum, v) => sum + v, 0) / shares.length;
       html += `<tr data-key="${escapeHtml(k)}"><td>${escapeHtml(problems[k].label)}</td><td class="num">${totalOf(k)}</td>` +
         modelYears.map((my, i) => {
-          const step = max ? Math.round(shares[i] / max * (HEAT.length - 1)) : 0;
+          const h = heatOf(mean ? shares[i] / mean : 1);
           const n = problems[k].countOf(my);
-          return `<td class="num heat${step >= 4 ? " dark" : ""}" style="background:${HEAT[step]}" ` +
-            `title="${n} of ${totals[my]} complaints">${shares[i].toFixed(0)}%</td>`;
+          return `<td class="num heat${h.dark ? " dark" : ""}" style="background:${h.color}" ` +
+            `title="${n} of ${totals[my]} complaints">${h.mark ? h.mark + " " : ""}${shares[i].toFixed(0)}%</td>`;
         }).join("") + "</tr>";
     }
     table.innerHTML = html + "</tbody>";
