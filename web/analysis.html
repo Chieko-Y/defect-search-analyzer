@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Defect Analysis</title>
-  <link rel="stylesheet" href="/static/style.css?v=8">
+  <link rel="stylesheet" href="/static/style.css?v=9">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
@@ -85,15 +85,19 @@
     </div>
   </section>
   <section class="card">
-    <h2>E. Did complaints change by model year or over time?</h2>
+    <h2>E. Did a problem appear or go away in a newer model year?</h2>
     <div class="callout">
-      <strong id="total-e"></strong>
-      Each bar is one model year, split by the year the problem happened.
-      Newer model years have been on the road for a shorter time, so their totals are smaller so far.
-      Compare the same number of years after release, not the totals. 2026 covers only January to September.
-      <span class="caution" id="e-excluded"></span>
+      <strong>Pick one problem and compare model years, like comparing release versions.</strong>
+      A jump in one model year can mean the problem came in with that version; a drop can mean it was fixed.
+      Bars show the share within each model year's own complaints, because older model years have been on the road longer
+      and so have more complaints in total: <span id="e-base"></span>
+      <span class="caution">Sales by model year are not in this data, so a bigger share does not prove that model year is worse.</span>
     </div>
-    <p class="hint">Click a part of a bar to see those complaints on the search page.</p>
+    <div class="chart-control">
+      <label for="e-problem">Problem</label>
+      <select id="e-problem"></select>
+    </div>
+    <p class="hint"><strong id="e-headline"></strong><br>Click a bar to see those complaints on the search page.</p>
     <div class="chart-box" id="box-e"><canvas id="chart-e"></canvas></div>
   </section>
 </main>
@@ -104,6 +108,9 @@ const BAR = "#0969da";
 const MUTED = "#afb8c1";
 const BAR_HEIGHT = 26;  // 1本あたりの高さ（px）。棒の数に合わせてグラフの高さを決める
 
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+}
 const isVague = v => ["Unknown", "Other"].includes(v);
 
 // 横向きの棒グラフを描く。棒をクリックすると、その条件で検索画面を開く（分析と検索をつなぐ）
@@ -249,72 +256,90 @@ async function drawD() {
   drawCompare("d-symptom", "symptom", order("symptom"), countsOf("symptom"), totals);
 }
 
-// E：年式ごとに、起きた年で分ける。新しい年式ほど走っている期間が短いので、合計だけで比べない
-//     起きた年は、薄い青（古い）→ 濃い青（新しい）の順に塗る（年の順番が色の濃さで分かる）
-const YEAR_COLORS = ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#0d366b"];
+// E：問題を1つ選んで、年式ごとに比べる（ソフトのバージョンごとに、問題が入った・直ったを見るのと同じ）
+//     年式によって走っている期間が違うので、件数ではなく「その年式の苦情の中で何%か」を棒にする
+const E_DEFAULT = "symptom:Water leak";  // 最初に出す例（2022年式に多く、そのあと減っている）
 
 async function drawE() {
   const options = await (await fetch("/api/options")).json();
   const modelYears = options.model_year.map(r => r.value).sort();
-  // 年式ごとに、起きた年の件数を取ってくる
-  const counts = {};
+  // 年式ごとに、機能・症状・機能×症状の件数を取ってくる
+  const byYear = {};
   for (const my of modelYears) {
-    const o = await (await fetch(`/api/options?model_year=${my}`)).json();
-    counts[my] = Object.fromEntries(o.incident_year.map(r => [r.value, r.n]));
+    byYear[my] = {
+      options: await (await fetch(`/api/options?model_year=${my}`)).json(),
+      pairs: await (await fetch(`/api/pairs?model_year=${my}`)).json(),
+    };
   }
-  // 年式 X の車が売られるのは、早くても X-1 年から。それより前に起きたことになっている苦情は
-  // 日付の入力ミスなので、このグラフからは除く（データは消さないので、検索では出てくる。2章㉟）
-  const excluded = [];
-  for (const my of modelYears) {
-    for (const y of Object.keys(counts[my])) {
-      if (Number(y) < my - 1) {
-        excluded.push(`${counts[my][y]} complaint(s) on model year ${my} with year ${y}`);
-        delete counts[my][y];
-      }
-    }
-  }
-  const years = [...new Set(modelYears.flatMap(my => Object.keys(counts[my])))].sort();
-  const totalOf = my => Object.values(counts[my]).reduce((sum, n) => sum + n, 0);
-  const total = modelYears.reduce((sum, my) => sum + totalOf(my), 0);
-  document.getElementById("total-e").textContent = `${total} complaints with a usable date of incident`;
-  document.getElementById("e-excluded").textContent = excluded.length
-    ? `Left out: ${excluded.join(", ")}. The date is before this model year went on sale, so it is a typo. It still shows up in search.`
-    : "";
+  const totals = Object.fromEntries(modelYears.map(my =>
+    [my, byYear[my].options.root.reduce((sum, r) => sum + r.n, 0)]));
+  document.getElementById("e-base").textContent =
+    modelYears.map(my => `${my} model: ${totals[my]}`).join(" · ") + " complaints.";
 
-  document.getElementById("box-e").style.height = `${modelYears.length * BAR_HEIGHT * 1.6 + 70}px`;
-  new Chart(document.getElementById("chart-e"), {
-    type: "bar",
-    data: {
-      labels: modelYears.map(my => `${my} model (${totalOf(my)})`),
-      datasets: years.map((y, i) => ({
-        label: `Happened in ${y}`,
-        data: modelYears.map(my => counts[my][y] || 0),
-        backgroundColor: YEAR_COLORS[i % YEAR_COLORS.length],
-        borderColor: "#ffffff",
-        borderWidth: 2,  // 積み重ねた部分の境目に白いすき間を入れて、区切りを見やすくする
-        borderSkipped: false,
-        barPercentage: 0.8,
-      })),
-    },
-    options: {
-      indexAxis: "y",
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: "top", align: "start", labels: { boxWidth: 12, color: "#1f2328" } },
-        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.x} complaints` } },
+  // 選べる問題の一覧。key は「種類:値」（例: root:Engine、pair:Engine|Unintended activation）
+  const problems = {};
+  const add = (key, label, query, countOf) => { problems[key] = { label, query, countOf }; };
+  for (const r of options.root) {
+    add(`root:${r.value}`, r.value, { root: r.value },
+        my => byYear[my].options.root.find(x => x.value === r.value)?.n || 0);
+  }
+  for (const r of options.symptom) {
+    add(`symptom:${r.value}`, r.value, { symptom: r.value },
+        my => byYear[my].options.symptom.find(x => x.value === r.value)?.n || 0);
+  }
+  const allPairs = await (await fetch("/api/pairs")).json();
+  for (const p of allPairs.filter(p => p.n >= 5)) {  // 組み合わせは数が多いので、5件以上のものだけ
+    add(`pair:${p.root}|${p.symptom}`, `${p.root} × ${p.symptom}`, { root: p.root, symptom: p.symptom },
+        my => byYear[my].pairs.find(x => x.root === p.root && x.symptom === p.symptom)?.n || 0);
+  }
+  const groups = [["root", "Root function"], ["symptom", "Symptom"], ["pair", "Root function × symptom"]];
+  const select = document.getElementById("e-problem");
+  const totalOf = key => modelYears.reduce((sum, my) => sum + problems[key].countOf(my), 0);
+  select.innerHTML = groups.map(([g, title]) =>
+    `<optgroup label="${title}">` +
+    Object.keys(problems).filter(k => k.startsWith(g + ":")).map(k =>
+      `<option value="${escapeHtml(k)}">${escapeHtml(problems[k].label)} (${totalOf(k)})</option>`).join("") +
+    "</optgroup>").join("");
+  select.value = E_DEFAULT;
+
+  let chart = null;
+  const draw = () => {
+    const problem = problems[select.value];
+    const n = modelYears.map(my => problem.countOf(my));
+    const pct = modelYears.map((my, i) => n[i] / totals[my] * 100);
+    document.getElementById("e-headline").textContent = `${problem.label}: ` +
+      modelYears.map((my, i) => `${my} model ${Math.round(pct[i])}%`).join(" · ");
+    if (chart) chart.destroy();
+    document.getElementById("box-e").style.height = `${modelYears.length * BAR_HEIGHT * 1.4 + 40}px`;
+    chart = new Chart(document.getElementById("chart-e"), {
+      type: "bar",
+      data: {
+        // 件数も項目名に書く（% だけだと、何件の話か分からなくなるため）
+        labels: modelYears.map((my, i) => `${my} model (${n[i]} of ${totals[my]})`),
+        datasets: [{ data: pct, backgroundColor: BAR, borderRadius: 4, barPercentage: 0.8 }],
       },
-      scales: {
-        x: { stacked: true, beginAtZero: true, grid: { color: "#eaeef2" }, ticks: { precision: 0 } },
-        y: { stacked: true, grid: { display: false } },
+      options: {
+        indexAxis: "y",
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: c =>
+            `${c.parsed.x.toFixed(1)}% (${n[c.dataIndex]} of ${totals[modelYears[c.dataIndex]]})` } },
+        },
+        scales: {
+          x: { beginAtZero: true, grid: { color: "#eaeef2" }, ticks: { callback: v => `${v}%` } },
+          y: { grid: { display: false } },
+        },
+        onClick: (e, hit) => {
+          if (hit.length) location.href = "/?" + new URLSearchParams(
+            { model_year: modelYears[hit[0].index], ...problem.query });
+        },
+        onHover: (e, hit) => { e.native.target.style.cursor = hit.length ? "pointer" : "default"; },
       },
-      onClick: (e, hit) => {
-        if (!hit.length) return;
-        location.href = "/?" + new URLSearchParams({
-          model_year: modelYears[hit[0].index], incident_year: years[hit[0].datasetIndex] });
-      },
-      onHover: (e, hit) => { e.native.target.style.cursor = hit.length ? "pointer" : "default"; },
-    },
-  });
+    });
+  };
+  select.addEventListener("change", draw);
+  draw();
 }
 
 async function main() {
