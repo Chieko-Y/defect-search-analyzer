@@ -115,15 +115,17 @@ def analysis_page():
 
 # ---- API ----
 
-# 絞り込みに使う complaints の列（画面の名前 → DB の列）
+# 絞り込みに使う complaints の列（画面の名前 → SQL で値を取り出す式）
 FILTER_COLUMNS = {
-    "root": "root_function_group",
-    "symptom": "symptom",
-    "trigger": "trigger",
-    "environment": "environment",
-    "powertrain": "powertrain",
-    "model_year": "model_year",
-    "safety_impact": "safety_impact",
+    "root": "c.root_function_group",
+    "symptom": "c.symptom",
+    "trigger": "c.trigger",
+    "environment": "c.environment",
+    "powertrain": "c.powertrain",
+    "model_year": "c.model_year",
+    "safety_impact": "c.safety_impact",
+    # 起きた年。日付（YYYY-MM-DD）の最初の4文字。年式とは別（2022年式の車が 2025 年に壊れる、など）
+    "incident_year": "substr(c.date_of_incident, 1, 4)",
 }
 
 
@@ -139,13 +141,15 @@ class Filters:
         environment: str | None = None,
         powertrain: str | None = None,
         model_year: int | None = None,
+        incident_year: str | None = None,
         safety_impact: int | None = None,
         keyword: str | None = None,
         include_duplicates: bool = False,
     ):
         self.values = {"root": root, "function": function, "symptom": symptom, "trigger": trigger,
                        "environment": environment, "powertrain": powertrain,
-                       "model_year": model_year, "safety_impact": safety_impact}
+                       "model_year": model_year, "incident_year": incident_year,
+                       "safety_impact": safety_impact}
         self.keyword = keyword
         self.include_duplicates = include_duplicates
 
@@ -163,7 +167,7 @@ class Filters:
                 where.append("EXISTS (SELECT 1 FROM complaint_functions f2 "
                              "WHERE f2.odi_number = c.odi_number AND f2.function_group = ?)")
             else:
-                where.append(f"c.{FILTER_COLUMNS[name]} = ?")
+                where.append(f"{FILTER_COLUMNS[name]} = ?")
             params.append(value)
         # 言葉はスペースで区切って、すべてが入っている苦情だけを残す（順番は問わない）
         # 「water leak」なら「water was leaking」も残る。LIKE は英字の大文字・小文字を区別しない
@@ -187,10 +191,10 @@ def options(filters: Filters = Depends()):
     result = {}
     for name, column in FILTER_COLUMNS.items():
         where_sql, params = filters.where(skip=name)
-        # 列の名前は上の表から選んだものだけなので、SQL に直接入れてよい
+        # 式は上の表から選んだものだけなので、SQL に直接入れてよい
         rows = con.execute(
-            f"SELECT c.{column} AS value, COUNT(*) AS n FROM complaints c {where_sql} "
-            f"GROUP BY c.{column} ORDER BY n DESC",
+            f"SELECT {column} AS value, COUNT(*) AS n FROM complaints c {where_sql} "
+            f"GROUP BY {column} ORDER BY n DESC",
             params,
         ).fetchall()
         result[name] = [dict(r) for r in rows]

@@ -84,6 +84,18 @@
       </div>
     </div>
   </section>
+  <section class="card">
+    <h2>E. Did complaints change by model year or over time?</h2>
+    <div class="callout">
+      <strong id="total-e"></strong>
+      Each bar is one model year, split by the year the problem happened.
+      Newer model years have been on the road for a shorter time, so their totals are smaller so far.
+      Compare the same number of years after release, not the totals. 2026 covers only January to September.
+      <span class="caution" id="e-excluded"></span>
+    </div>
+    <p class="hint">Click a part of a bar to see those complaints on the search page.</p>
+    <div class="chart-box" id="box-e"><canvas id="chart-e"></canvas></div>
+  </section>
 </main>
 
 <script>
@@ -237,6 +249,74 @@ async function drawD() {
   drawCompare("d-symptom", "symptom", order("symptom"), countsOf("symptom"), totals);
 }
 
+// E：年式ごとに、起きた年で分ける。新しい年式ほど走っている期間が短いので、合計だけで比べない
+//     起きた年は、薄い青（古い）→ 濃い青（新しい）の順に塗る（年の順番が色の濃さで分かる）
+const YEAR_COLORS = ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#0d366b"];
+
+async function drawE() {
+  const options = await (await fetch("/api/options")).json();
+  const modelYears = options.model_year.map(r => r.value).sort();
+  // 年式ごとに、起きた年の件数を取ってくる
+  const counts = {};
+  for (const my of modelYears) {
+    const o = await (await fetch(`/api/options?model_year=${my}`)).json();
+    counts[my] = Object.fromEntries(o.incident_year.map(r => [r.value, r.n]));
+  }
+  // 年式 X の車が売られるのは、早くても X-1 年から。それより前に起きたことになっている苦情は
+  // 日付の入力ミスなので、このグラフからは除く（データは消さないので、検索では出てくる。2章㉟）
+  const excluded = [];
+  for (const my of modelYears) {
+    for (const y of Object.keys(counts[my])) {
+      if (Number(y) < my - 1) {
+        excluded.push(`${counts[my][y]} complaint(s) on model year ${my} with year ${y}`);
+        delete counts[my][y];
+      }
+    }
+  }
+  const years = [...new Set(modelYears.flatMap(my => Object.keys(counts[my])))].sort();
+  const totalOf = my => Object.values(counts[my]).reduce((sum, n) => sum + n, 0);
+  const total = modelYears.reduce((sum, my) => sum + totalOf(my), 0);
+  document.getElementById("total-e").textContent = `${total} complaints with a usable date of incident`;
+  document.getElementById("e-excluded").textContent = excluded.length
+    ? `Left out: ${excluded.join(", ")}. The date is before this model year went on sale, so it is a typo. It still shows up in search.`
+    : "";
+
+  document.getElementById("box-e").style.height = `${modelYears.length * BAR_HEIGHT * 1.6 + 70}px`;
+  new Chart(document.getElementById("chart-e"), {
+    type: "bar",
+    data: {
+      labels: modelYears.map(my => `${my} model (${totalOf(my)})`),
+      datasets: years.map((y, i) => ({
+        label: `Happened in ${y}`,
+        data: modelYears.map(my => counts[my][y] || 0),
+        backgroundColor: YEAR_COLORS[i % YEAR_COLORS.length],
+        borderColor: "#ffffff",
+        borderWidth: 2,  // 積み重ねた部分の境目に白いすき間を入れて、区切りを見やすくする
+        borderSkipped: false,
+        barPercentage: 0.8,
+      })),
+    },
+    options: {
+      indexAxis: "y",
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "top", align: "start", labels: { boxWidth: 12, color: "#1f2328" } },
+        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.x} complaints` } },
+      },
+      scales: {
+        x: { stacked: true, beginAtZero: true, grid: { color: "#eaeef2" }, ticks: { precision: 0 } },
+        y: { stacked: true, grid: { display: false } },
+      },
+      onClick: (e, hit) => {
+        if (!hit.length) return;
+        location.href = "/?" + new URLSearchParams({
+          model_year: modelYears[hit[0].index], incident_year: years[hit[0].datasetIndex] });
+      },
+      onHover: (e, hit) => { e.native.target.style.cursor = hit.length ? "pointer" : "default"; },
+    },
+  });
+}
+
 async function main() {
   // 絞り込みの選択肢の件数（/api/options）を、そのままグラフにする。二重登録は API が除いている
   const options = await (await fetch("/api/options")).json();
@@ -261,6 +341,7 @@ async function main() {
 
   await drawC(total);
   await drawD();
+  await drawE();
 }
 
 main();
