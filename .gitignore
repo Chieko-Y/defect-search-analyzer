@@ -2,7 +2,7 @@
 __pycache__/
 data/raw/
 
-# 転職準備メモ（内部用。公開しない）
+# 個人用のメモ（公開しない）
 docs/career_notes.md
 
 # 作り直せる DB（src/process/build_db.py で作る）
