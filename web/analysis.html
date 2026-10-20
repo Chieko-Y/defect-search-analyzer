@@ -159,8 +159,8 @@ function drawBars(name, bars) {
   });
 }
 
-// C：危険度2 を、起きたとき（trigger）で分ける。ルールでは止まっているか走っているかで点数を変えないので
-//     （2章⑰）、ここで区別する。trigger を「走っている・止まっている・分からない」の3つにまとめて色を分ける
+// C：危険度2 を、起きたとき（trigger）で分ける。ルールでは止まっているか走っているかで点数を変えないので、
+//     ここで区別する。trigger を「走っている・止まっている・分からない」の3つにまとめて色を分ける
 const MOTION = {
   moving: { label: "Moving", color: "#bf3989",
             triggers: ["Driving (road type unknown)", "Highway driving", "City driving", "Starting from stop", "Low speed/Parking"] },
@@ -188,7 +188,7 @@ async function drawC(total) {
 }
 
 // D：ガソリン車とハイブリッド車を並べて比べる。台数が分からないので、件数ではなく
-//     「それぞれの車の苦情の中で何%か」を棒にする（2章㉟）
+//     「それぞれの車の苦情の中で何%か」を棒にする
 const POWERTRAINS = [
   { key: "gas", label: "Gas", color: "#0969da" },
   { key: "hybrid", label: "Hybrid", color: "#d1570a" },

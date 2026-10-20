@@ -4,6 +4,10 @@ data/raw/
 
 # 個人用のメモ（公開しない）
 docs/career_notes.md
+docs/work_log.md
+docs/notes.md
+docs/human_check_*.md
+docs/review_v6_ai_calls.md
 
 # 作り直せる DB（src/process/build_db.py で作る）
 *.db

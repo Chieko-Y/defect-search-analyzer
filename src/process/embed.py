@@ -32,7 +32,7 @@ META_PATH = ROOT / "data" / "processed" / "complaint_chunks_meta.json"
 # 多言語に対応しているので、日本語の質問で英語の苦情を探せる。「仕様書類似検索」アプリと同じモデル。
 # 10/1〜10/13 は multilingual-e5-base を使っていた。質問セット（data/eval/search_queries.json）では
 # 英語でほぼ同じ（61% と 62%）、日本語で e5-base が少し上（44% と 50%）だったが、差がわずかなので、
-# 話をややこしくしないよう前のアプリと同じこちらにそろえた（2026-10-13。Chieko が決定）
+# 前のアプリと同じこちらにそろえた
 MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 # e5 のモデルでは、探される文に "passage: "、質問に "query: " を付ける決まりがある。MiniLM は付けない
 PASSAGE_PREFIX = ""
@@ -44,7 +44,7 @@ WORDS_PER_PIECE = 50  # 句点がなく長すぎる文を区切るときの語�
 
 # 個人情報を黒塗りにしたときに NHTSA が付ける決まり文句（41件）と、名前や日付を隠した印（[XXX] など）。
 # 苦情の中身とは関係がないので、ベクトルにする前に除く。除かないと「information」などで探したとき、
-# 決まり文句の部分が近いという理由で上位に並ぶ（2026-10-14。Chieko が決定。work_log 2章㉛）
+# 決まり文句の部分が近いという理由で上位に並ぶ
 REDACTION_NOTICE = re.compile(
     r"INFORMATION\s+REDACTED\s+PURSUANT\s+TO\s+THE\s+FREEDOM\s+OF\s+INFORMATION\s+ACT\s*\(FOIA\),?"
     r"\s*5\s*U\.S\.C\.?\s*552\(B\)\(6\)\.?", re.IGNORECASE)
