@@ -6,6 +6,14 @@ A web app that searches for similar defects and analyzes defect trends, built on
 
 The current dataset is 555 owner complaints about the Toyota RAV4 (model years 2022–2025).
 
+## What it says
+
+1. Engine (27%) and body/glass (23%) together account for half of all complaints. Most body/glass complaints are breakage: moonroofs shattering, cracked windshields, and failed door locks.
+2. 70 complaints have the highest safety impact (crash, injury, or fire). Half of those (35) describe sudden unintended acceleration, and 14 describe airbags that didn’t deploy.
+3. Gas cars and hybrids differ. Engine is 37% of gas-car complaints but only 18% of hybrid complaints.
+4. 27% of complaints are filed under NHTSA’s “Unknown or other” category. Reclassified by function, they turn out to be mostly body/glass, engine, and IVI.
+5. IVI/Display is the third-largest area (8%).
+
 For the background and the reasons behind the design, see the [design document](docs/design.en.md).
 
 ## Features
